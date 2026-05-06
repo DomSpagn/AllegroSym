@@ -1,6 +1,7 @@
 import flet as ft
 import json
 import os
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -8,7 +9,9 @@ from pathlib import Path
 APP_VERSION = "v0.1"
 BUILD_DATE = "06-05-2026"
 AUTHOR = "Domenico Spagnuolo"
-CONF_FILE = "allegrosym_conf.json"
+JSONS_DIR = os.path.join(os.path.dirname(__file__), "JSONS")
+CONF_FILE = os.path.join(JSONS_DIR, "asym_conf.json")
+PACKAGE_LIST_FILE = os.path.join(JSONS_DIR, "package_list.json")
 ICON_PATH = os.path.join(os.path.dirname(__file__), "Images", "ASym.ico")
 
 STRINGS = {
@@ -42,6 +45,19 @@ STRINGS = {
         "no_release_notes": "No Release Notes found.",
         "main_title": "AllegroSym",
         "wizard_output_hint": "Choose a folder where ASymOut will be created",
+        "new_symbol": "New Symbol",
+        "edit_symbol": "Edit Symbol",
+        "symbol_name": "Symbol Name",
+        "package_type": "Package Type",
+        "add_package": "Add Package",
+        "delete_package": "Delete Package",
+        "show_packages": "Show Packages",
+        "no_packages": "No packages defined yet.",
+        "package_name": "Package Name",
+        "package_pins": "Number of Pins",
+        "pick_footprint": "Footprint Image…",
+        "pick_3d": "3D Image…",
+        "delete": "Delete",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -73,11 +89,29 @@ STRINGS = {
         "no_release_notes": "Nessuna Nota di Rilascio trovata.",
         "main_title": "AllegroSym",
         "wizard_output_hint": "Scegli una cartella in cui creare ASymOut",
+        "new_symbol": "Nuovo Simbolo",
+        "edit_symbol": "Modifica Simbolo",
+        "symbol_name": "Nome Simbolo",
+        "package_type": "Tipo Package",
+        "add_package": "Aggiungi Package",
+        "delete_package": "Elimina Package",
+        "show_packages": "Mostra Package",
+        "no_packages": "Nessun package ancora definito.",
+        "package_name": "Nome Package",
+        "package_pins": "Numero Pin",
+        "pick_footprint": "Immagine Footprint…",
+        "pick_3d": "Immagine 3D…",
+        "delete": "Elimina",
     },
 }
 
 
 def load_config():
+    os.makedirs(JSONS_DIR, exist_ok=True)
+    # Migrate from old location if needed
+    old_conf = os.path.join(os.path.dirname(__file__), "allegrosym_conf.json")
+    if os.path.exists(old_conf) and not os.path.exists(CONF_FILE):
+        shutil.move(old_conf, CONF_FILE)
     if os.path.exists(CONF_FILE):
         try:
             with open(CONF_FILE, "r", encoding="utf-8") as f:
@@ -88,12 +122,30 @@ def load_config():
 
 
 def save_config(cfg: dict):
+    os.makedirs(JSONS_DIR, exist_ok=True)
     with open(CONF_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=4, ensure_ascii=False)
 
 
 def get_strings(lang: str) -> dict:
     return STRINGS.get(lang, STRINGS["en"])
+
+
+def load_packages() -> list:
+    os.makedirs(JSONS_DIR, exist_ok=True)
+    if os.path.exists(PACKAGE_LIST_FILE):
+        try:
+            with open(PACKAGE_LIST_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def save_packages(packages: list):
+    os.makedirs(JSONS_DIR, exist_ok=True)
+    with open(PACKAGE_LIST_FILE, "w", encoding="utf-8") as f:
+        json.dump(packages, f, indent=4, ensure_ascii=False)
 
 
 # ── Wizard ───────────────────────────────────────────────────────────────────
@@ -394,54 +446,425 @@ def show_main(page: ft.Page, cfg: dict):
         save_config(cfg)
         apply_theme(new_theme)
 
-    # ── Toolbar (top-right row of icon buttons) ───────────────────────────────
-    toolbar = ft.Row(
-        [
-            ft.PopupMenuButton(
-                icon=ft.Icons.SETTINGS,
-                tooltip=s["settings"],
-                items=[
-                    ft.PopupMenuItem(
-                        content=ft.Row([ft.Icon(ft.Icons.FOLDER), ft.Text(s["output_folder"])], spacing=8),
-                        on_click=show_output_folder_dialog,
-                    ),
-                    ft.PopupMenuItem(
-                        content=ft.Row([ft.Icon(ft.Icons.LANGUAGE), ft.Text(s["language"])], spacing=8),
-                        on_click=show_language_dialog,
-                    ),
-                ],
-            ),
-            ft.IconButton(
-                icon=ft.Icons.WB_SUNNY,
-                tooltip=s["toggle_theme"],
-                on_click=toggle_theme,
-            ),
-            ft.PopupMenuButton(
-                icon=ft.Icons.HELP,
-                tooltip=s["help"],
-                items=[
-                    ft.PopupMenuItem(
-                        content=ft.Row([ft.Icon(ft.Icons.INFO), ft.Text(s["about"])], spacing=8),
-                        on_click=show_about,
-                    ),
-                    ft.PopupMenuItem(
-                        content=ft.Row([ft.Icon(ft.Icons.MENU_BOOK), ft.Text(s["user_manual"])], spacing=8),
-                        on_click=show_user_manual,
-                    ),
-                    ft.PopupMenuItem(
-                        content=ft.Row([ft.Icon(ft.Icons.ARTICLE), ft.Text(s["release_notes"])], spacing=8),
-                        on_click=show_release_notes,
-                    ),
-                ],
-            ),
-        ],
-        alignment=ft.MainAxisAlignment.END,
+    # ── Package management ────────────────────────────────────────────────────
+    packages = load_packages()
+
+    new_sym_btn_ref  = ft.Ref[ft.IconButton]()
+    edit_sym_btn_ref = ft.Ref[ft.IconButton]()
+    save_pkg_btn_ref = ft.Ref[ft.ElevatedButton]()
+    del_btn_ref       = ft.Ref[ft.ElevatedButton]()
+
+    def update_symbol_buttons():
+        enabled = len(packages) > 0
+        new_sym_btn_ref.current.disabled  = not enabled
+        edit_sym_btn_ref.current.disabled = not enabled
+        new_sym_btn_ref.current.opacity   = 1.0 if enabled else 0.35
+        edit_sym_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+        page.update()
+
+    # ── Field widgets ─────────────────────────────────────────────────────────
+    # New Symbol panel fields
+    sym_name_field = ft.TextField(label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True)
+    pkg_dropdown = ft.Dropdown(
+        label=s.get("package_type", "Package Type"),
+        width=320,
+        options=[ft.dropdown.Option(p["name"]) for p in packages],
+    )
+
+    # Add Package panel fields
+    def _check_save_enabled(e=None):
+        name_ok = bool(pkg_name_field.value.strip())
+        pins_str = pkg_pins_field.value.strip()
+        pins_ok = pins_str.isdigit() and int(pins_str) > 0
+        # Show/clear error on pins field
+        if pins_str == "":
+            pkg_pins_field.error_text  = None
+            pkg_pins_field.border_color = None
+        elif not pins_ok:
+            pkg_pins_field.error_text  = "Inserire un intero positivo non nullo"
+            pkg_pins_field.border_color = ft.Colors.RED
+        else:
+            pkg_pins_field.error_text  = None
+            pkg_pins_field.border_color = None
+        enabled = name_ok and pins_ok
+        if save_pkg_btn_ref.current:
+            save_pkg_btn_ref.current.disabled = not enabled
+            save_pkg_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+        page.update()
+
+    pkg_name_field    = ft.TextField(label=s.get("package_name", "Package Name"), width=280, on_change=_check_save_enabled)
+    pkg_pins_field    = ft.TextField(label=s.get("package_pins", "Number of Pins"), width=280, on_change=_check_save_enabled)
+    fp_path_text      = ft.Text(value="", size=11, italic=True)
+    img3d_path_text   = ft.Text(value="", size=11, italic=True)
+    pkg_images        = {"footprint": "", "3d": ""}
+
+    # Delete Package panel fields
+    def _on_del_dd_select(e):
+        enabled = bool(del_pkg_dd.value)
+        if del_btn_ref.current:
+            del_btn_ref.current.disabled = not enabled
+            del_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+            page.update()
+
+    del_pkg_dd = ft.Dropdown(label=s.get("package_name", "Package"), width=280, on_select=_on_del_dd_select)
+
+    # ── File pickers ─────────────────────────────────────────────────────────
+    fp_picker    = ft.FilePicker()
+    img3d_picker = ft.FilePicker()
+    page.services.append(fp_picker)
+    page.services.append(img3d_picker)
+
+    async def pick_footprint(_):
+        files = await fp_picker.pick_files(
+            dialog_title=s.get("pick_footprint", "Select Footprint Image"),
+            allowed_extensions=["png", "jpg", "jpeg", "bmp"],
+        )
+        if files:
+            pkg_images["footprint"] = files[0].path
+            fp_path_text.value = os.path.basename(files[0].path)
+            page.update()
+
+    async def pick_3d(_):
+        files = await img3d_picker.pick_files(
+            dialog_title=s.get("pick_3d", "Select 3D Model"),
+            allowed_extensions=["stp", "step"],
+        )
+        if files:
+            pkg_images["3d"] = files[0].path
+            img3d_path_text.value = os.path.basename(files[0].path)
+            page.update()
+
+    # ── Handlers ─────────────────────────────────────────────────────────────
+    def _collapse_window():
+        page.window.height     = 120
+        page.window.min_height = 120
+        page.window.update()
+
+    def new_symbol(e):
+        add_pkg_panel.visible = False
+        del_pkg_panel.visible = False
+        sym_name_field.value  = ""
+        pkg_dropdown.value    = None
+        pkg_dropdown.options  = [ft.dropdown.Option(p["name"]) for p in packages]
+        new_sym_panel.visible = True
+        page.window.min_height = 280
+        page.window.height     = 280
+        page.window.update()
+        page.update()
+
+    def edit_symbol(e):
+        pass  # placeholder
+
+    def show_add_package(e):
+        new_sym_panel.visible   = False
+        del_pkg_panel.visible   = False
+        pkg_name_field.value    = ""
+        pkg_pins_field.value    = ""
+        fp_path_text.value      = ""
+        img3d_path_text.value   = ""
+        pkg_images["footprint"] = ""
+        pkg_images["3d"]        = ""
+        add_pkg_panel.visible   = True
+        page.window.min_height  = 500
+        page.window.height      = 500
+        page.window.update()
+        _check_save_enabled()
+        page.update()
+
+    def save_package(_):
+        name     = pkg_name_field.value.strip()
+        pins_str = pkg_pins_field.value.strip()
+        if not name or not (pins_str.isdigit() and int(pins_str) > 0):
+            return
+        pins = int(pins_str)
+        pkg_dir  = os.path.join(os.path.dirname(__file__), "Images", name)
+        os.makedirs(pkg_dir, exist_ok=True)
+        fp_dest = img3d_dest = ""
+        if pkg_images["footprint"]:
+            ext = os.path.splitext(pkg_images["footprint"])[1]
+            fp_dest = os.path.join(pkg_dir, f"footprint{ext}")
+            shutil.copy2(pkg_images["footprint"], fp_dest)
+        if pkg_images["3d"]:
+            ext = os.path.splitext(pkg_images["3d"])[1]
+            img3d_dest = os.path.join(pkg_dir, f"3d{ext}")
+            shutil.copy2(pkg_images["3d"], img3d_dest)
+        packages.append({"name": name, "pins": pins, "footprint": fp_dest, "image3d": img3d_dest})
+        save_packages(packages)
+        add_pkg_panel.visible = False
+        _collapse_window()
+        update_symbol_buttons()
+
+    def cancel_add_pkg(_):
+        add_pkg_panel.visible = False
+        _collapse_window()
+        page.update()
+
+    def show_delete_package(e):
+        if not packages:
+            return
+        del_pkg_dd.options    = [ft.dropdown.Option(p["name"]) for p in packages]
+        del_pkg_dd.value      = None
+        new_sym_panel.visible = False
+        add_pkg_panel.visible = False
+        del_pkg_panel.visible = True
+        if del_btn_ref.current:
+            del_btn_ref.current.disabled = True
+            del_btn_ref.current.opacity  = 0.35
+        page.window.min_height = 280
+        page.window.height     = 280
+        page.window.update()
+        page.update()
+
+    def confirm_delete(_):
+        name = del_pkg_dd.value
+        if not name:
+            return
+        packages[:] = [p for p in packages if p["name"] != name]
+        save_packages(packages)
+        pkg_dir = os.path.join(os.path.dirname(__file__), "Images", name)
+        if os.path.isdir(pkg_dir):
+            shutil.rmtree(pkg_dir)
+        del_pkg_panel.visible = False
+        _collapse_window()
+        update_symbol_buttons()
+
+    def cancel_delete(_):
+        del_pkg_panel.visible = False
+        _collapse_window()
+        page.update()
+
+    def show_packages(e):
+        new_sym_panel.visible  = False
+        add_pkg_panel.visible  = False
+        del_pkg_panel.visible  = False
+        # Rebuild the list each time
+        if packages:
+            rows = []
+            for p in packages:
+                rows.append(
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.MEMORY, size=16),
+                            ft.Text(p["name"], size=13, weight=ft.FontWeight.W_500, expand=True),
+                            ft.Text(f"{p['pins']} pins", size=12, italic=True),
+                        ],
+                        spacing=8,
+                    )
+                )
+            pkg_list_col.controls = rows
+            pkg_list_col.controls.append(
+                ft.TextButton(s.get("close", "Close"), on_click=lambda _: (_collapse_window(), setattr(pkg_list_panel, 'visible', False), page.update()))
+            )
+        else:
+            pkg_list_col.controls = [
+                ft.Text(s.get("no_packages", "No packages defined yet."), italic=True),
+                ft.TextButton(s.get("close", "Close"), on_click=lambda _: (_collapse_window(), setattr(pkg_list_panel, 'visible', False), page.update())),
+            ]
+        pkg_list_panel.visible = True
+        needed_height = max(260, 180 + len(packages) * 42)
+        page.window.min_height = needed_height
+        page.window.height     = needed_height
+        page.window.update()
+        page.update()
+
+    # ── Panels ────────────────────────────────────────────────────────────────
+    pkg_list_col = ft.Column([], spacing=6)
+
+    pkg_list_panel = ft.Container(
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(s.get("show_packages", "Show Packages"), size=16, weight=ft.FontWeight.W_600, color=ft.Colors.BLUE),
+                ft.Divider(height=1),
+                pkg_list_col,
+            ],
+            spacing=10,
+        ),
+    )
+
+    new_sym_panel = ft.Container(
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(s.get("new_symbol", "New Symbol"), size=16, weight=ft.FontWeight.W_600),
+                sym_name_field,
+                pkg_dropdown,
+            ],
+            spacing=12,
+        ),
+    )
+
+    add_pkg_panel = ft.Container(
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(
+                    s.get("add_package", "Add Package"),
+                    size=16,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.ORANGE,
+                ),
+                pkg_name_field,
+                pkg_pins_field,
+                ft.Column(
+                    [
+                        ft.Text("Images", size=12, weight=ft.FontWeight.W_500),
+                        ft.Column(
+                            [
+                                ft.ElevatedButton("2D", icon=ft.Icons.IMAGE, on_click=pick_footprint),
+                                fp_path_text,
+                                ft.ElevatedButton("3D", icon=ft.Icons.VIEW_IN_AR, on_click=pick_3d),
+                                img3d_path_text,
+                            ],
+                            spacing=4,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=6,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [
+                        ft.ElevatedButton(
+                            s.get("save", "Save"),
+                            ref=save_pkg_btn_ref,
+                            icon=ft.Icons.SAVE,
+                            on_click=save_package,
+                            color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.GREEN_700,
+                            disabled=True,
+                            opacity=0.35,
+                        ),
+                        ft.ElevatedButton(
+                            s.get("close", "Cancel"),
+                            on_click=cancel_add_pkg,
+                            color=ft.Colors.WHITE,
+                            bgcolor=ft.Colors.GREY_600,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=8,
+                ),
+            ],
+            spacing=12,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    del_pkg_panel = ft.Container(
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(s.get("delete_package", "Delete Package"), size=16, weight=ft.FontWeight.W_600),
+                del_pkg_dd,
+                ft.Row(
+                    [
+                        ft.ElevatedButton(
+                            s.get("delete", "Delete"),
+                            ref=del_btn_ref,
+                            icon=ft.Icons.DELETE,
+                            color=ft.Colors.RED,
+                            on_click=confirm_delete,
+                            disabled=True,
+                            opacity=0.35,
+                        ),
+                        ft.TextButton(s.get("close", "Cancel"), on_click=cancel_delete),
+                    ],
+                    spacing=8,
+                ),
+            ],
+            spacing=12,
+        ),
+    )
+
+    # ── Unified Command Bar ───────────────────────────────────────────────────
+    top_bar = ft.Container(
+        content=ft.Row(
+            [
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            ref=new_sym_btn_ref,
+                            icon=ft.Icons.ADD_BOX,
+                            icon_color=ft.Colors.GREEN,
+                            tooltip=s.get("new_symbol", "New Symbol"),
+                            on_click=new_symbol,
+                            disabled=len(packages) == 0,
+                            opacity=1.0 if len(packages) > 0 else 0.35,
+                        ),
+                        ft.IconButton(
+                            ref=edit_sym_btn_ref,
+                            icon=ft.Icons.EDIT,
+                            icon_color=ft.Colors.TEAL,
+                            tooltip=s.get("edit_symbol", "Edit Symbol"),
+                            on_click=edit_symbol,
+                            disabled=len(packages) == 0,
+                            opacity=1.0 if len(packages) > 0 else 0.35,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.MEMORY,
+                            icon_color=ft.Colors.BLUE,
+                            tooltip=s.get("add_package", "Add Package"),
+                            on_click=show_add_package,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.LIST_ALT,
+                            icon_color=ft.Colors.PURPLE,
+                            tooltip=s.get("show_packages", "Show Packages"),
+                            on_click=show_packages,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_SWEEP,
+                            icon_color=ft.Colors.RED,
+                            tooltip=s.get("delete_package", "Delete Package"),
+                            on_click=show_delete_package,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                ft.Row(
+                    [
+                        ft.PopupMenuButton(
+                            icon=ft.Icons.SETTINGS,
+                            tooltip=s["settings"],
+                            items=[
+                                ft.PopupMenuItem(
+                                    content=ft.Row([ft.Icon(ft.Icons.FOLDER), ft.Text(s["output_folder"])], spacing=8),
+                                    on_click=show_output_folder_dialog,
+                                ),
+                                ft.PopupMenuItem(
+                                    content=ft.Row([ft.Icon(ft.Icons.LANGUAGE), ft.Text(s["language"])], spacing=8),
+                                    on_click=show_language_dialog,
+                                ),
+                            ],
+                        ),
+                        ft.IconButton(icon=ft.Icons.WB_SUNNY, tooltip=s["toggle_theme"], on_click=toggle_theme),
+                        ft.PopupMenuButton(
+                            icon=ft.Icons.HELP,
+                            tooltip=s["help"],
+                            items=[
+                                ft.PopupMenuItem(content=ft.Row([ft.Icon(ft.Icons.INFO), ft.Text(s["about"])], spacing=8), on_click=show_about),
+                                ft.PopupMenuItem(content=ft.Row([ft.Icon(ft.Icons.MENU_BOOK), ft.Text(s["user_manual"])], spacing=8), on_click=show_user_manual),
+                                ft.PopupMenuItem(content=ft.Row([ft.Icon(ft.Icons.ARTICLE), ft.Text(s["release_notes"])], spacing=8), on_click=show_release_notes),
+                            ],
+                        ),
+                    ],
+                    spacing=0,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        padding=ft.padding.symmetric(horizontal=8, vertical=2),
     )
 
     body = ft.Column(
-        [],
+        [new_sym_panel, add_pkg_panel, del_pkg_panel, pkg_list_panel],
         expand=True,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.START,
     )
 
     page.views.clear()
@@ -450,7 +873,7 @@ def show_main(page: ft.Page, cfg: dict):
             route="/main",
             controls=[
                 ft.Column(
-                    [toolbar, body],
+                    [top_bar, ft.Divider(height=1), body],
                     expand=True,
                 )
             ],
