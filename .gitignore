@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+
+# Requirements
+requirements.txt
+
+# Output test folder
+ASymOut/
+
+# Configuration (contains user-specific paths)
+allegrosym_conf.json
+
+# ── Build / packaging ────────────────────────────────────────────────────────
+# PyInstaller intermediate build artefacts
+build/
+dist/
