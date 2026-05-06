@@ -164,8 +164,7 @@ def show_wizard(page: ft.Page, on_complete):
             controls=[
                 ft.Column(
                     [
-                        ft.Image(src=ICON_PATH, width=64, height=64),
-                        ft.Text("AllegroSym", size=28, weight=ft.FontWeight.BOLD),
+                        ft.Image(src="AllegroSym.png", width=200, height=200),
                         ft.Divider(),
                         ft.Text(ref=lbl_lang, value=s["language"], size=14, weight=ft.FontWeight.W_600),
                         ft.Dropdown(
