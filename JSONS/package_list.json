@@ -2,13 +2,7 @@
     {
         "name": "SOIC",
         "pins": 8,
-        "footprint": "",
-        "image3d": ""
-    },
-    {
-        "name": "UQFN",
-        "pins": 10,
-        "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\UQFN\\footprint.png",
-        "image3d": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\UQFN\\3d.STEP"
+        "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\SOIC\\footprint.png",
+        "image3d": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\SOIC\\3d.STEP"
     }
 ]
