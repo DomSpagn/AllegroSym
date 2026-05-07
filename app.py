@@ -956,6 +956,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_dd.value      = None
         new_sym_panel.visible = False
         add_pkg_panel.visible = False
+        pkg_list_panel.visible = False
         del_pkg_panel.visible = True
         if del_btn_ref.current:
             del_btn_ref.current.disabled = True
