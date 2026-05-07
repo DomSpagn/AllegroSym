@@ -918,6 +918,7 @@ def show_main(page: ft.Page, cfg: dict):
                             disabled=len(packages) == 0,
                             opacity=1.0 if len(packages) > 0 else 0.35,
                         ),
+                        ft.VerticalDivider(width=1, thickness=1, color=ft.colors.OUTLINE),
                         ft.IconButton(
                             icon=ft.icons.MEMORY,
                             icon_color=ft.colors.BLUE,
@@ -925,10 +926,16 @@ def show_main(page: ft.Page, cfg: dict):
                             on_click=show_add_package,
                         ),
                         ft.IconButton(
-                            icon=ft.icons.EDIT_NOTE,
+                            icon=ft.icons.DEVELOPER_BOARD,
                             icon_color=ft.colors.TEAL,
                             tooltip=s.get("edit_package", "Edit Package"),
                             on_click=show_edit_package,
+                        ),
+                        ft.IconButton(
+                            icon=ft.icons.MEMORY_OUTLINED,
+                            icon_color=ft.colors.RED,
+                            tooltip=s.get("delete_package", "Delete Package"),
+                            on_click=show_delete_package,
                         ),
                         ft.IconButton(
                             icon=ft.icons.LIST_ALT,
@@ -936,14 +943,9 @@ def show_main(page: ft.Page, cfg: dict):
                             tooltip=s.get("show_packages", "Show Packages"),
                             on_click=show_packages,
                         ),
-                        ft.IconButton(
-                            icon=ft.icons.DELETE_SWEEP,
-                            icon_color=ft.colors.RED,
-                            tooltip=s.get("delete_package", "Delete Package"),
-                            on_click=show_delete_package,
-                        ),
                     ],
                     spacing=0,
+                    height=40,
                 ),
                 ft.Row(
                     [
