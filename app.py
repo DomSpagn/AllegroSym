@@ -1,14 +1,17 @@
+import base64
 import flet as ft
 import flet.canvas as cv
+from flet.core.painting import Paint, PaintingStyle
 
 import json
 import os
 import shutil
 import sys
+from collections import deque
 from datetime import date
 from pathlib import Path
 
-APP_VERSION = "v0.1"
+APP_VERSION = "v0.2"
 BUILD_DATE = date.today().strftime("%d-%m-%Y")
 AUTHOR = " Domenico Spagnuolo"
 JSONS_DIR = os.path.join(os.path.dirname(__file__), "JSONS")
@@ -20,6 +23,59 @@ ICON_PATH = os.path.join(os.path.dirname(__file__), "Images", "ASym.ico")
 def pkg_display_name(p: dict) -> str:
     """Canonical display name shown everywhere: 'NAMEPINS'."""
     return f"{p['name']}{p['pins']}"
+
+
+def detect_orange_pins(image_path: str, min_area: int = 30) -> list:
+    """Detect orange shapes (pins) in a PNG footprint image.
+    Returns list of (x, y, w, h) bounding boxes in original image coordinates."""
+    try:
+        from PIL import Image as _PILImage
+        import numpy as _np
+
+        img = _PILImage.open(image_path).convert("RGB")
+        arr = _np.array(img)
+        r = arr[:, :, 0].astype(_np.int32)
+        g = arr[:, :, 1].astype(_np.int32)
+        b = arr[:, :, 2].astype(_np.int32)
+        # Orange heuristic: R dominant, moderate G, low B
+        mask = (r > 150) & (g > 50) & (g < 215) & (b < 100) & ((r - b) > 100)
+        if not _np.any(mask):
+            return []
+        H, W = mask.shape
+        CELL = 3
+        grid_h = (H + CELL - 1) // CELL
+        grid_w = (W + CELL - 1) // CELL
+        grid = _np.zeros((grid_h, grid_w), dtype=bool)
+        ys, xs = _np.where(mask)
+        grid[ys // CELL, xs // CELL] = True
+        visited = _np.zeros((grid_h, grid_w), dtype=bool)
+        bboxes = []
+        for gy in range(grid_h):
+            for gx in range(grid_w):
+                if grid[gy, gx] and not visited[gy, gx]:
+                    queue = deque([(gy, gx)])
+                    visited[gy, gx] = True
+                    cells = [(gy, gx)]
+                    while queue:
+                        cy, cx = queue.popleft()
+                        for dy in range(-1, 2):
+                            for dx in range(-1, 2):
+                                ny, nx = cy + dy, cx + dx
+                                if 0 <= ny < grid_h and 0 <= nx < grid_w:
+                                    if grid[ny, nx] and not visited[ny, nx]:
+                                        visited[ny, nx] = True
+                                        queue.append((ny, nx))
+                                        cells.append((ny, nx))
+                    min_gy = min(c[0] for c in cells) * CELL
+                    max_gy = min(max(c[0] for c in cells) * CELL + CELL, H)
+                    min_gx = min(c[1] for c in cells) * CELL
+                    max_gx = min(max(c[1] for c in cells) * CELL + CELL, W)
+                    area = (max_gy - min_gy) * (max_gx - min_gx)
+                    if area >= min_area:
+                        bboxes.append((min_gx, min_gy, max_gx - min_gx, max_gy - min_gy))
+        return bboxes
+    except Exception:
+        return []
 STRINGS = {
     "en": {
         "wizard_title": "AllegroSym – First Setup",
@@ -466,9 +522,14 @@ def show_main(page: ft.Page, cfg: dict):
     edit_sym_btn_ref = ft.Ref[ft.IconButton]()
     save_pkg_btn_ref = ft.Ref[ft.ElevatedButton]()
     del_btn_ref       = ft.Ref[ft.ElevatedButton]()
+    save_cancel_row_ref        = ft.Ref[ft.Row]()
     add_pkg_panel_title_ref    = ft.Ref[ft.Text]()
     edit_fields_container_ref  = ft.Ref[ft.Container]()
+    footprint_preview_ref      = ft.Ref[ft.Container]()
+    fp_canvas_ref              = ft.Ref[cv.Canvas]()
     _pkg_mode = {"mode": "add", "original_idx": -1}
+    _fp_state = {"pins": [], "scale_x": 1.0, "scale_y": 1.0}
+    _FP_PREVIEW_W = 900
 
     def update_symbol_buttons():
         enabled = len(packages) > 0
@@ -494,6 +555,11 @@ def show_main(page: ft.Page, cfg: dict):
         pins_str = pkg_pins_field.value.strip()
         pins_ok = pins_str.isdigit() and int(pins_str) > 0
         fp_ok   = bool(pkg_images["footprint"])
+        # All detected pins must have both name and number
+        all_pins_ok = all(
+            bool(p.get("name", "").strip()) and bool(p.get("number", "").strip())
+            for p in _fp_state["pins"]
+        )
         # Show/clear error on pins field
         if pins_str == "":
             pkg_pins_field.error_text  = None
@@ -504,10 +570,10 @@ def show_main(page: ft.Page, cfg: dict):
         else:
             pkg_pins_field.error_text  = None
             pkg_pins_field.border_color = None
-        enabled = name_ok and pins_ok and fp_ok
-        if save_pkg_btn_ref.current:
-            save_pkg_btn_ref.current.disabled = not enabled
-            save_pkg_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+        # Show Save/Cancel row only when everything is ready
+        row_visible = name_ok and pins_ok and fp_ok and all_pins_ok
+        if save_cancel_row_ref.current:
+            save_cancel_row_ref.current.visible = row_visible
         page.update()
 
     pkg_name_field    = ft.TextField(label=s.get("package_name", "Package Name"), width=280, on_change=_check_save_enabled)
@@ -540,8 +606,20 @@ def show_main(page: ft.Page, cfg: dict):
             pkg_pins_field.value      = str(pkg["pins"])
             fp_path_text.value        = os.path.basename(pkg.get("footprint", "")) if pkg.get("footprint") else ""
             pkg_images["footprint"]   = pkg.get("footprint", "")
+            # Load saved pin data
+            _fp_state["pins"] = [
+                {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
+                for p in pkg.get("pins_data", [])
+            ]
             if edit_fields_container_ref.current:
                 edit_fields_container_ref.current.visible = True
+            # Build preview if footprint exists
+            if pkg.get("footprint") and os.path.isfile(pkg["footprint"]):
+                _build_preview(pkg["footprint"])
+            else:
+                if footprint_preview_ref.current is not None:
+                    footprint_preview_ref.current.visible = False
+                    footprint_preview_ref.current.update()
             _check_save_enabled()
             page.update()
 
@@ -561,10 +639,150 @@ def show_main(page: ft.Page, cfg: dict):
     )
 
     # ── File pickers ─────────────────────────────────────────────────────────
+
+    # ── Footprint preview helpers ─────────────────────────────────────────────
+    def _build_pin_shapes():
+        shapes = []
+        sx = _fp_state["scale_x"]
+        sy = _fp_state["scale_y"]
+        for pin in _fp_state["pins"]:
+            x, y, w, h = pin["bbox_orig"]
+            dx = x * sx
+            dy = y * sy
+            dw = max(w * sx, 4.0)
+            dh = max(h * sy, 4.0)
+            has_data = bool(pin.get("name", "").strip() and pin.get("number", "").strip())
+            color = ft.colors.LIGHT_BLUE_400 if has_data else ft.colors.ORANGE_400
+            shapes.append(cv.Rect(
+                dx, dy, dw, dh,
+                paint=Paint(color=color, stroke_width=2, style=PaintingStyle.STROKE),
+            ))
+            if has_data:
+                lbl = f"{pin.get('number', '')}:{pin.get('name', '')}"
+                shapes.append(cv.Text(
+                    dx + dw / 2, dy + dh / 2, lbl,
+                    style=ft.TextStyle(size=16, color=ft.colors.WHITE),
+                    alignment=ft.alignment.center,
+                    text_align=ft.TextAlign.CENTER,
+                    max_width=dw,
+                ))
+        return shapes
+
+    def _refresh_canvas():
+        if fp_canvas_ref.current:
+            fp_canvas_ref.current.shapes = _build_pin_shapes()
+            fp_canvas_ref.current.update()
+        _check_save_enabled()
+
+    def _build_preview(image_path: str):
+        """Build the interactive footprint preview widget."""
+        try:
+            from PIL import Image as _PILImage
+            img_pil = _PILImage.open(image_path)
+            orig_w, orig_h = img_pil.size
+        except Exception:
+            orig_w, orig_h = 400, 400
+
+        scale = _FP_PREVIEW_W / max(orig_w, 1)
+        preview_h = int(orig_h * scale)
+        _fp_state["scale_x"] = scale
+        _fp_state["scale_y"] = scale
+
+        # Detect pins if not populated from saved data
+        if not _fp_state["pins"]:
+            bboxes = detect_orange_pins(image_path)
+            _fp_state["pins"] = [{"bbox_orig": bb, "name": "", "number": ""} for bb in bboxes]
+
+        # Image as base64
+        try:
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+            img_ctrl = ft.Image(
+                src_base64=img_b64,
+                width=_FP_PREVIEW_W,
+                height=preview_h,
+                fit=ft.ImageFit.FILL,
+            )
+        except Exception:
+            img_ctrl = ft.Container(width=_FP_PREVIEW_W, height=preview_h, bgcolor=ft.colors.GREY_800)
+
+        canvas_ctrl = cv.Canvas(
+            ref=fp_canvas_ref,
+            shapes=_build_pin_shapes(),
+            width=_FP_PREVIEW_W,
+            height=preview_h,
+        )
+        tap_layer = ft.GestureDetector(
+            on_tap_down=_handle_img_tap,
+            content=canvas_ctrl,
+        )
+        preview_stack = ft.Stack(
+            [img_ctrl, tap_layer],
+            width=_FP_PREVIEW_W,
+            height=preview_h,
+        )
+        if footprint_preview_ref.current is not None:
+            footprint_preview_ref.current.content = preview_stack
+            footprint_preview_ref.current.visible = True
+            footprint_preview_ref.current.update()
+
+    def _handle_img_tap(e):
+        cx, cy = e.local_x, e.local_y
+        sx = _fp_state["scale_x"]
+        sy = _fp_state["scale_y"]
+        for i, pin in enumerate(_fp_state["pins"]):
+            x, y, w, h = pin["bbox_orig"]
+            dx = x * sx
+            dy = y * sy
+            dw = max(w * sx, 8.0)
+            dh = max(h * sy, 8.0)
+            if dx - 3 <= cx <= dx + dw + 3 and dy - 3 <= cy <= dy + dh + 3:
+                _show_pin_dialog(i)
+                return
+
+    def _show_pin_dialog(pin_idx: int):
+        pin = _fp_state["pins"][pin_idx]
+        error_ref = ft.Ref[ft.Text]()
+        name_field   = ft.TextField(label="Pin Name",   value=pin.get("name", ""),   width=220)
+        number_field = ft.TextField(label="Pin ID", value=pin.get("number", ""), width=220, autofocus=True)
+
+        def on_pin_save(_):
+            new_id = number_field.value.strip()
+            new_name = name_field.value.strip()
+            # Check uniqueness: no other pin (different index) can have the same Pin ID
+            duplicate = any(
+                i != pin_idx and _fp_state["pins"][i].get("number", "").strip() == new_id
+                for i in range(len(_fp_state["pins"]))
+            )
+            if duplicate and new_id:
+                number_field.error_text = "Pin ID già utilizzato da un altro pin"
+                number_field.border_color = ft.colors.RED
+                page.update()
+                return
+            number_field.error_text = None
+            number_field.border_color = None
+            _fp_state["pins"][pin_idx]["name"]   = new_name
+            _fp_state["pins"][pin_idx]["number"] = new_id
+            page.close(dlg)
+            _refresh_canvas()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Pin {pin_idx + 1}"),
+            content=ft.Column([number_field, name_field], tight=True, spacing=8),
+            actions=[
+                ft.TextButton(s.get("close", "Cancel"), on_click=lambda _: page.close(dlg)),
+                ft.ElevatedButton(s.get("save", "Save"), on_click=on_pin_save),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.open(dlg)
+
     def _on_fp_result(e: ft.FilePickerResultEvent):
         if e.files:
             pkg_images["footprint"] = e.files[0].path
             fp_path_text.value = os.path.basename(e.files[0].path)
+            _fp_state["pins"] = []  # reset so detect runs fresh
+            _build_preview(e.files[0].path)
             _check_save_enabled()
 
     fp_picker = ft.FilePicker(on_result=_on_fp_result)
@@ -610,6 +828,12 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_pins_field.value    = ""
         fp_path_text.value      = ""
         pkg_images["footprint"] = ""
+        _fp_state["pins"]       = []
+        if footprint_preview_ref.current is not None:
+            footprint_preview_ref.current.visible = False
+            footprint_preview_ref.current.content = None
+        if save_cancel_row_ref.current:
+            save_cancel_row_ref.current.visible = False
         add_pkg_panel.visible   = True
         _check_save_enabled()
         page.update()
@@ -634,6 +858,12 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_pins_field.value    = ""
         fp_path_text.value      = ""
         pkg_images["footprint"] = ""
+        _fp_state["pins"]       = []
+        if footprint_preview_ref.current is not None:
+            footprint_preview_ref.current.visible = False
+            footprint_preview_ref.current.content = None
+        if save_cancel_row_ref.current:
+            save_cancel_row_ref.current.visible = False
         if save_pkg_btn_ref.current:
             save_pkg_btn_ref.current.disabled = True
             save_pkg_btn_ref.current.opacity  = 0.35
@@ -668,7 +898,8 @@ def show_main(page: ft.Page, cfg: dict):
                 ext     = os.path.splitext(pkg_images["footprint"])[1]
                 fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
-            packages.append({"name": name, "pins": pins, "footprint": fp_dest})
+            pins_data = [{"bbox_orig": list(p["bbox_orig"]), "name": p["name"], "number": p["number"]} for p in _fp_state["pins"]]
+            packages.append({"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data})
 
         else:  # edit
             orig_pkg  = packages[orig_idx]
@@ -694,7 +925,8 @@ def show_main(page: ft.Page, cfg: dict):
                 fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
 
-            packages[orig_idx] = {"name": name, "pins": pins, "footprint": fp_dest}
+            packages[orig_idx] = {"name": name, "pins": pins, "footprint": fp_dest,
+                                   "pins_data": [{"bbox_orig": list(p["bbox_orig"]), "name": p["name"], "number": p["number"]} for p in _fp_state["pins"]]}
 
         save_packages(packages)
         add_pkg_panel.visible = False
@@ -702,6 +934,12 @@ def show_main(page: ft.Page, cfg: dict):
         update_symbol_buttons()
 
     def cancel_add_pkg(_):
+        _fp_state["pins"] = []
+        if footprint_preview_ref.current is not None:
+            footprint_preview_ref.current.visible = False
+            footprint_preview_ref.current.content = None
+        if save_cancel_row_ref.current:
+            save_cancel_row_ref.current.visible = False
         add_pkg_panel.visible = False
         _collapse_window()
         page.update()
@@ -806,7 +1044,7 @@ def show_main(page: ft.Page, cfg: dict):
     add_pkg_panel = ft.Container(
         visible=False,
         expand=True,
-        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        padding=ft.padding.symmetric(horizontal=12, vertical=12),
         content=ft.Column(
             [
                 ft.Text(
@@ -820,50 +1058,67 @@ def show_main(page: ft.Page, cfg: dict):
                 edit_sel_container,
                 ft.Container(
                     ref=edit_fields_container_ref,
-                    expand=False,
-                    content=ft.Column(
+                    expand=True,
+                    content=ft.Row(
                         [
-                            pkg_name_field,
-                            pkg_pins_field,
-                            ft.Column(
-                                [
-                                    ft.ElevatedButton(s.get("footprint_btn", "Footprint Image"), icon=ft.icons.IMAGE, on_click=pick_footprint),
-                                    fp_path_text,
-                                ],
-                                spacing=4,
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            # ── Left column: fields (1/5) ──────────────────
+                            ft.Container(
+                                expand=1,
+                                padding=ft.padding.only(right=12),
+                                content=ft.Column(
+                                    [
+                                        pkg_name_field,
+                                        pkg_pins_field,
+                                        ft.ElevatedButton(s.get("footprint_btn", "Footprint Image"), icon=ft.icons.IMAGE, on_click=pick_footprint),
+                                        fp_path_text,
+                                        ft.Row(
+                                            [
+                                                ft.ElevatedButton(
+                                                    s.get("save", "Save"),
+                                                    ref=save_pkg_btn_ref,
+                                                    icon=ft.icons.SAVE,
+                                                    on_click=save_package,
+                                                    color=ft.colors.WHITE,
+                                                    bgcolor=ft.colors.GREEN_700,
+                                                ),
+                                                ft.ElevatedButton(
+                                                    s.get("close", "Cancel"),
+                                                    on_click=cancel_add_pkg,
+                                                    color=ft.colors.WHITE,
+                                                    bgcolor=ft.colors.GREY_600,
+                                                ),
+                                            ],
+                                            ref=save_cancel_row_ref,
+                                            alignment=ft.MainAxisAlignment.START,
+                                            spacing=8,
+                                            visible=False,
+                                            wrap=True,
+                                        ),
+                                    ],
+                                    spacing=12,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
                             ),
-                            ft.Row(
-                                [
-                                    ft.ElevatedButton(
-                                        s.get("save", "Save"),
-                                        ref=save_pkg_btn_ref,
-                                        icon=ft.icons.SAVE,
-                                        on_click=save_package,
-                                        color=ft.colors.WHITE,
-                                        bgcolor=ft.colors.GREEN_700,
-                                        disabled=True,
-                                        opacity=0.35,
-                                    ),
-                                    ft.ElevatedButton(
-                                        s.get("close", "Cancel"),
-                                        on_click=cancel_add_pkg,
-                                        color=ft.colors.WHITE,
-                                        bgcolor=ft.colors.GREY_600,
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                spacing=8,
+                            # ── Right column: interactive image (4/5) ──────
+                            ft.Container(
+                                expand=4,
+                                alignment=ft.alignment.center,
+                                content=ft.Container(
+                                    ref=footprint_preview_ref,
+                                    visible=False,
+                                    content=None,
+                                    alignment=ft.alignment.center,
+                                ),
                             ),
                         ],
-                        spacing=12,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        expand=True,
+                        spacing=0,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ),
             ],
-            spacing=12,
+            spacing=8,
             expand=True,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
     )
 
