@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 APP_VERSION = "v0.1"
-BUILD_DATE = "06-05-2026"
+BUILD_DATE = date.today().strftime("%d-%m-%Y")
 AUTHOR = " Domenico Spagnuolo"
 JSONS_DIR = os.path.join(os.path.dirname(__file__), "JSONS")
 CONF_FILE = os.path.join(JSONS_DIR, "asym_conf.json")
@@ -63,6 +63,7 @@ STRINGS = {
         "package_name": "Package Name",
         "package_pins": "Number of Pins",
         "pick_footprint": "Footprint Image…",
+        "footprint_btn": "Footprint Image",
         "pick_3d": "3D Image…",
         "delete": "Delete",
     },
@@ -108,6 +109,7 @@ STRINGS = {
         "package_name": "Nome Package",
         "package_pins": "Numero Pin",
         "pick_footprint": "Immagine Footprint…",
+        "footprint_btn": "Immagine Footprint",
         "pick_3d": "Immagine 3D…",
         "delete": "Elimina",
     },
@@ -491,6 +493,7 @@ def show_main(page: ft.Page, cfg: dict):
         name_ok = bool(pkg_name_field.value.strip())
         pins_str = pkg_pins_field.value.strip()
         pins_ok = pins_str.isdigit() and int(pins_str) > 0
+        fp_ok   = bool(pkg_images["footprint"])
         # Show/clear error on pins field
         if pins_str == "":
             pkg_pins_field.error_text  = None
@@ -501,7 +504,7 @@ def show_main(page: ft.Page, cfg: dict):
         else:
             pkg_pins_field.error_text  = None
             pkg_pins_field.border_color = None
-        enabled = name_ok and pins_ok
+        enabled = name_ok and pins_ok and fp_ok
         if save_pkg_btn_ref.current:
             save_pkg_btn_ref.current.disabled = not enabled
             save_pkg_btn_ref.current.opacity  = 1.0 if enabled else 0.35
@@ -558,18 +561,21 @@ def show_main(page: ft.Page, cfg: dict):
     )
 
     # ── File pickers ─────────────────────────────────────────────────────────
-    fp_picker = ft.FilePicker()
+    def _on_fp_result(e: ft.FilePickerResultEvent):
+        if e.files:
+            pkg_images["footprint"] = e.files[0].path
+            fp_path_text.value = os.path.basename(e.files[0].path)
+            _check_save_enabled()
+
+    fp_picker = ft.FilePicker(on_result=_on_fp_result)
     page.overlay.append(fp_picker)
 
-    async def pick_footprint(_):
-        files = await fp_picker.pick_files(
+    def pick_footprint(_):
+        fp_picker.pick_files(
             dialog_title=s.get("pick_footprint", "Select Footprint Image"),
-            allowed_extensions=["png", "jpg", "jpeg", "bmp"],
+            allowed_extensions=["png"],
         )
-        if files:
-            pkg_images["footprint"] = files[0].path
-            fp_path_text.value = os.path.basename(files[0].path)
-            page.update()
+        page.update()
 
     # ── Handlers ─────────────────────────────────────────────────────────────
     def _collapse_window():
@@ -655,36 +661,37 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_name_field.border_color = None
 
         if mode == "add":
-            pkg_dir = os.path.join(os.path.dirname(__file__), "Images", name)
+            pkg_dir = os.path.join(os.path.dirname(__file__), "Images", f"{name}{pins}")
             os.makedirs(pkg_dir, exist_ok=True)
             fp_dest = ""
             if pkg_images["footprint"]:
                 ext     = os.path.splitext(pkg_images["footprint"])[1]
-                fp_dest = os.path.join(pkg_dir, f"footprint{ext}")
+                fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
             packages.append({"name": name, "pins": pins, "footprint": fp_dest})
 
         else:  # edit
             orig_pkg  = packages[orig_idx]
             old_name  = orig_pkg["name"]
-            old_dir   = os.path.join(os.path.dirname(__file__), "Images", old_name)
-            pkg_dir   = os.path.join(os.path.dirname(__file__), "Images", name)
+            old_pins  = orig_pkg["pins"]
+            old_dir   = os.path.join(os.path.dirname(__file__), "Images", f"{old_name}{old_pins}")
+            pkg_dir   = os.path.join(os.path.dirname(__file__), "Images", f"{name}{pins}")
 
-            # Rename folder if name changed
-            if old_name != name and os.path.isdir(old_dir):
+            # Rename folder if name or pins changed
+            if (old_name != name or old_pins != pins) and os.path.isdir(old_dir):
                 os.rename(old_dir, pkg_dir)
             os.makedirs(pkg_dir, exist_ok=True)
 
             fp_dest = orig_pkg.get("footprint", "")
 
-            # Remap path to new folder if name changed
-            if old_name != name and fp_dest:
-                fp_dest = fp_dest.replace(old_dir, pkg_dir)
+            # Remap path to new folder if name or pins changed
+            if (old_name != name or old_pins != pins) and fp_dest:
+                fp_dest = os.path.join(pkg_dir, os.path.basename(fp_dest))
 
             # Overwrite footprint if a new file was picked
             if pkg_images["footprint"] and pkg_images["footprint"] != orig_pkg.get("footprint", ""):
                 ext     = os.path.splitext(pkg_images["footprint"])[1]
-                fp_dest = os.path.join(pkg_dir, f"footprint{ext}")
+                fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
 
             packages[orig_idx] = {"name": name, "pins": pins, "footprint": fp_dest}
@@ -720,7 +727,7 @@ def show_main(page: ft.Page, cfg: dict):
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
         if not pkg:
             return
-        folder_name = pkg["name"]
+        folder_name = f"{pkg['name']}{pkg['pins']}"
         packages[:] = [p for p in packages if pkg_display_name(p) != dname]
         save_packages(packages)
         pkg_dir = os.path.join(os.path.dirname(__file__), "Images", folder_name)
@@ -820,7 +827,7 @@ def show_main(page: ft.Page, cfg: dict):
                             pkg_pins_field,
                             ft.Column(
                                 [
-                                    ft.ElevatedButton("Footprint", icon=ft.icons.IMAGE, on_click=pick_footprint),
+                                    ft.ElevatedButton(s.get("footprint_btn", "Footprint Image"), icon=ft.icons.IMAGE, on_click=pick_footprint),
                                     fp_path_text,
                                 ],
                                 spacing=4,
