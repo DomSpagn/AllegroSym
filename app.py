@@ -676,13 +676,6 @@ def show_main(page: ft.Page, cfg: dict):
                         view3d_ring_ref.current.visible = True
                     has_3d = True
                     threading.Thread(target=_do_render, daemon=True).start()
-        if has_2d or has_3d:
-            page.window.min_height = 520
-            page.window.height     = 520
-        else:
-            page.window.min_height = 280
-            page.window.height     = 280
-        page.window.update()
         page.update()
 
     pkg_dropdown = ft.Dropdown(
@@ -748,9 +741,6 @@ def show_main(page: ft.Page, cfg: dict):
             pkg_images["3d"]          = pkg.get("image3d", "")
             if edit_fields_container_ref.current:
                 edit_fields_container_ref.current.visible = True
-            page.window.min_height = 580
-            page.window.height     = 580
-            page.window.update()
             _check_save_enabled()
             page.update()
 
@@ -796,9 +786,7 @@ def show_main(page: ft.Page, cfg: dict):
 
     # ── Handlers ─────────────────────────────────────────────────────────────
     def _collapse_window():
-        page.window.height     = 120
-        page.window.min_height = 120
-        page.window.update()
+        pass  # window resizing removed; layout driven by scroll
 
     def new_symbol(e):
         add_pkg_panel.visible = False
@@ -811,9 +799,6 @@ def show_main(page: ft.Page, cfg: dict):
         if view3d_col_ref.current:
             view3d_col_ref.current.visible = False
         new_sym_panel.visible = True
-        page.window.min_height = 280
-        page.window.height     = 280
-        page.window.update()
         page.update()
 
     def edit_symbol(e):
@@ -837,9 +822,6 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_images["footprint"] = ""
         pkg_images["3d"]        = ""
         add_pkg_panel.visible   = True
-        page.window.min_height  = 500
-        page.window.height      = 500
-        page.window.update()
         _check_save_enabled()
         page.update()
 
@@ -869,9 +851,6 @@ def show_main(page: ft.Page, cfg: dict):
             save_pkg_btn_ref.current.disabled = True
             save_pkg_btn_ref.current.opacity  = 0.35
         add_pkg_panel.visible   = True
-        page.window.min_height  = 240
-        page.window.height      = 240
-        page.window.update()
         page.update()
 
     def save_package(_):
@@ -968,9 +947,6 @@ def show_main(page: ft.Page, cfg: dict):
         if del_btn_ref.current:
             del_btn_ref.current.disabled = True
             del_btn_ref.current.opacity  = 0.35
-        page.window.min_height = 260
-        page.window.height     = 260
-        page.window.update()
         page.update()
 
     def confirm_delete(_):
@@ -1022,10 +998,6 @@ def show_main(page: ft.Page, cfg: dict):
                 ft.TextButton(s.get("close", "Close"), on_click=lambda _: (_collapse_window(), setattr(pkg_list_panel, 'visible', False), page.update())),
             ]
         pkg_list_panel.visible = True
-        needed_height = max(260, 180 + len(packages) * 42)
-        page.window.min_height = needed_height
-        page.window.height     = needed_height
-        page.window.update()
         page.update()
 
     # ── Panels ────────────────────────────────────────────────────────────────
