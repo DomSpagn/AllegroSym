@@ -8,7 +8,7 @@
     {
         "name": "UQFN",
         "pins": 10,
-        "footprint": "",
-        "image3d": ""
+        "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\UQFN\\footprint.png",
+        "image3d": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\UQFN\\3d.STEP"
     }
 ]

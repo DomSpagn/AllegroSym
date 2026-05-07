@@ -607,6 +607,7 @@ def show_main(page: ft.Page, cfg: dict):
 
     view3d_img_ref  = ft.Ref[ft.Image]()
     view3d_ring_ref = ft.Ref[ft.Container]()
+    view3d_col_ref  = ft.Ref[ft.Column]()
     view3d_label    = ft.Text("3D Model", size=11, italic=True, visible=False)
     _3d_state: dict = {"azim": 45.0, "elev": 30.0, "path": "", "rendering": False}
 
@@ -652,6 +653,8 @@ def show_main(page: ft.Page, cfg: dict):
         _3d_state["path"]        = ""
         if view3d_img_ref.current:
             view3d_img_ref.current.visible = False
+        if view3d_col_ref.current:
+            view3d_col_ref.current.visible = False
         has_2d = has_3d = False
         if dname:
             pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
@@ -667,6 +670,8 @@ def show_main(page: ft.Page, cfg: dict):
                     _3d_state["azim"]    = 45.0
                     _3d_state["elev"]    = 30.0
                     view3d_label.visible = True
+                    if view3d_col_ref.current:
+                        view3d_col_ref.current.visible = True
                     if view3d_ring_ref.current:
                         view3d_ring_ref.current.visible = True
                     has_3d = True
@@ -803,6 +808,8 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_dropdown.options  = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
         fp_preview_img.visible   = False
         fp_preview_label.visible = False
+        if view3d_col_ref.current:
+            view3d_col_ref.current.visible = False
         new_sym_panel.visible = True
         page.window.min_height = 280
         page.window.height     = 280
@@ -1042,7 +1049,7 @@ def show_main(page: ft.Page, cfg: dict):
         padding=ft.padding.symmetric(horizontal=24, vertical=12),
         content=ft.Column(
             [
-                ft.Text(s.get("new_symbol", "New Symbol"), size=16, weight=ft.FontWeight.W_600),
+                ft.Text(s.get("new_symbol", "New Symbol"), size=16, weight=ft.FontWeight.W_600, color=ft.Colors.ORANGE),
                 sym_name_field,
                 pkg_dropdown,
                 ft.Row(
@@ -1053,7 +1060,9 @@ def show_main(page: ft.Page, cfg: dict):
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         ft.Column(
-                            [
+                            ref=view3d_col_ref,
+                            visible=False,
+                            controls=[
                                 view3d_label,
                                 ft.GestureDetector(
                                     content=ft.Container(
