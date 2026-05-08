@@ -333,6 +333,7 @@ def show_main(page: ft.Page, cfg: dict):
             ]
             if edit_fields_container_ref.current:
                 edit_fields_container_ref.current.visible = True
+            edit_sel_container.visible = False
             if pkg.get("footprint") and os.path.isfile(pkg["footprint"]):
                 _build_preview(pkg["footprint"])
             else:
