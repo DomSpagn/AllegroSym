@@ -226,6 +226,9 @@ def show_main(page: ft.Page, cfg: dict):
     _FP_PREVIEW_W = 900
     new_sym_fp_preview_ref          = ft.Ref[ft.Container]()
     new_sym_right_col_ref           = ft.Ref[ft.Container]()
+    _new_sym_content_ref            = ft.Ref[ft.Container]()
+    _new_sym_bottom_bar_ref         = ft.Ref[ft.Container]()
+    generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
 
     def update_symbol_buttons():
         enabled = len(packages) > 0
@@ -235,8 +238,24 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     # ── Field widgets ─────────────────────────────────────────────────────────
+    def _check_sym_parts(e=None):
+        val = sym_parts_field.value.strip()
+        if val == "":
+            sym_parts_field.error_text   = None
+            sym_parts_field.border_color = None
+        elif not (val.isdigit() and int(val) > 0):
+            sym_parts_field.error_text   = "Inserire un intero positivo non nullo"
+            sym_parts_field.border_color = ft.colors.RED
+        else:
+            sym_parts_field.error_text   = None
+            sym_parts_field.border_color = None
+        page.update()
+
     sym_name_field = ft.TextField(
         label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True
+    )
+    sym_parts_field = ft.TextField(
+        label=s.get("symbol_parts", "Number of Symbol Parts"), width=320, on_change=_check_sym_parts
     )
     pkg_dropdown = ft.Dropdown(
         label=s.get("package_type", "Package Type"),
@@ -473,6 +492,54 @@ def show_main(page: ft.Page, cfg: dict):
         )
         edit_fields_container_ref.current.update()
 
+    def _set_new_sym_centered_layout():
+        if _new_sym_content_ref.current is None:
+            return
+        _new_sym_content_ref.current.content = ft.Container(
+            expand=True,
+            alignment=ft.alignment.center,
+            content=ft.Column(
+                [sym_name_field, sym_parts_field, pkg_dropdown],
+                spacing=12,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+        )
+        _new_sym_content_ref.current.update()
+
+    def _set_new_sym_two_col_layout():
+        if _new_sym_content_ref.current is None:
+            return
+        _new_sym_content_ref.current.content = ft.Row(
+            [
+                ft.Container(
+                    expand=1,
+                    padding=ft.padding.only(right=12),
+                    alignment=ft.alignment.center,
+                    content=ft.Column(
+                        [sym_name_field, sym_parts_field, pkg_dropdown],
+                        spacing=12,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        tight=True,
+                    ),
+                ),
+                ft.Container(
+                    ref=new_sym_right_col_ref,
+                    expand=4,
+                    alignment=ft.alignment.top_center,
+                    content=ft.Container(
+                        ref=new_sym_fp_preview_ref,
+                        alignment=ft.alignment.center,
+                        content=None,
+                    ),
+                ),
+            ],
+            expand=True,
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
+        _new_sym_content_ref.current.update()
+
     # ── Preview builder ───────────────────────────────────────────────────────
     def _on_pin_method_change(e):
         method = e.control.value
@@ -527,7 +594,8 @@ def show_main(page: ft.Page, cfg: dict):
         except Exception:
             orig_w, orig_h = 400, 400
 
-        scale = _FP_PREVIEW_W / max(orig_w, 1)
+        _interactive_w = int(_FP_PREVIEW_W * 0.75)
+        scale = _interactive_w / max(orig_w, 1)
         preview_h = int(orig_h * scale)
         _fp_state["scale_x"] = scale
         _fp_state["scale_y"] = scale
@@ -543,24 +611,24 @@ def show_main(page: ft.Page, cfg: dict):
                 img_b64 = base64.b64encode(f.read()).decode()
             img_ctrl = ft.Image(
                 src_base64=img_b64,
-                width=_FP_PREVIEW_W,
+                width=_interactive_w,
                 height=preview_h,
                 fit=ft.ImageFit.FILL,
             )
         except Exception:
             img_ctrl = ft.Container(
-                width=_FP_PREVIEW_W, height=preview_h, bgcolor=ft.colors.GREY_800
+                width=_interactive_w, height=preview_h, bgcolor=ft.colors.GREY_800
             )
 
         canvas_ctrl = cv.Canvas(
             ref=fp_canvas_ref,
             shapes=_build_pin_shapes(),
-            width=_FP_PREVIEW_W,
+            width=_interactive_w,
             height=preview_h,
         )
         tap_layer = ft.GestureDetector(on_tap_down=_handle_img_tap, content=canvas_ctrl)
         preview_stack = ft.Stack(
-            [img_ctrl, tap_layer], width=_FP_PREVIEW_W, height=preview_h
+            [img_ctrl, tap_layer], width=_interactive_w, height=preview_h
         )
 
         pin_method_dd = ft.Dropdown(
@@ -802,8 +870,9 @@ def show_main(page: ft.Page, cfg: dict):
         """Called when the user selects a package in the New Symbol dropdown."""
         dname = e.control.value
         if not dname:
-            if new_sym_right_col_ref.current:
-                new_sym_right_col_ref.current.visible = False
+            _set_new_sym_centered_layout()
+            if _new_sym_bottom_bar_ref.current:
+                _new_sym_bottom_bar_ref.current.visible = False
             page.update()
             return
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
@@ -812,25 +881,31 @@ def show_main(page: ft.Page, cfg: dict):
                 {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
                 for p in pkg.get("pins_data", [])
             ]
+            _set_new_sym_two_col_layout()
             _build_interactive_preview(pkg["footprint"])
-            if new_sym_right_col_ref.current:
-                new_sym_right_col_ref.current.visible = True
+            if _new_sym_bottom_bar_ref.current:
+                _new_sym_bottom_bar_ref.current.visible = True
         else:
-            if new_sym_right_col_ref.current:
-                new_sym_right_col_ref.current.visible = False
+            _set_new_sym_centered_layout()
+            if _new_sym_bottom_bar_ref.current:
+                _new_sym_bottom_bar_ref.current.visible = False
         page.update()
 
     def new_symbol(e):
-        add_pkg_panel.visible  = False
-        del_pkg_panel.visible  = False
-        pkg_list_panel.visible = False
-        sym_name_field.value   = ""
-        pkg_dropdown.value     = None
-        pkg_dropdown.options   = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
+        add_pkg_panel.visible   = False
+        del_pkg_panel.visible   = False
+        pkg_list_panel.visible  = False
+        sym_name_field.value    = ""
+        sym_parts_field.value   = ""
+        sym_parts_field.error_text   = None
+        sym_parts_field.border_color = None
+        pkg_dropdown.value      = None
+        pkg_dropdown.options    = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
         _reset_pkg_state()
-        if new_sym_right_col_ref.current:
-            new_sym_right_col_ref.current.visible = False
-        new_sym_panel.visible  = True
+        _set_new_sym_centered_layout()
+        if _new_sym_bottom_bar_ref.current:
+            _new_sym_bottom_bar_ref.current.visible = False
+        new_sym_panel.visible   = True
         page.update()
 
     def edit_symbol(e):
@@ -1024,48 +1099,72 @@ def show_main(page: ft.Page, cfg: dict):
 
     pkg_dropdown.on_change = _on_pkg_type_change
 
+    _new_sym_action_row = ft.Row(
+        [
+            ft.ElevatedButton(
+                s.get("generate_symbol", "Generate Symbol"),
+                ref=generate_sym_btn_ref,
+                icon=ft.icons.BOLT,
+                on_click=edit_symbol,
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.GREEN_700,
+                disabled=True,
+                opacity=0.35,
+            ),
+            ft.ElevatedButton(
+                s.get("close", "Cancel"),
+                on_click=lambda e: (
+                    setattr(new_sym_panel, "visible", False) or page.update()
+                ),
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.GREY_600,
+            ),
+        ],
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=8,
+        wrap=True,
+    )
+
     new_sym_panel = ft.Container(
         visible=False,
         expand=True,
         padding=ft.padding.symmetric(horizontal=12, vertical=12),
-        content=ft.Row(
+        content=ft.Column(
             [
-                # Left 1/5 — symbol name + package selector
+                # Frame 1 — title
+                ft.Text(
+                    s.get("new_symbol", "New Symbol"),
+                    size=16,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.colors.ORANGE,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                # Frame 2 — main content (centered fields or two-col with preview)
                 ft.Container(
-                    expand=1,
-                    padding=ft.padding.only(right=12),
-                    alignment=ft.alignment.top_center,
-                    content=ft.Column(
-                        [
-                            ft.Text(
-                                s.get("new_symbol", "New Symbol"),
-                                size=16,
-                                weight=ft.FontWeight.W_600,
-                                color=ft.colors.ORANGE,
-                            ),
-                            sym_name_field,
-                            pkg_dropdown,
-                        ],
-                        spacing=12,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ref=_new_sym_content_ref,
+                    expand=True,
+                    content=ft.Container(
+                        expand=True,
+                        alignment=ft.alignment.center,
+                        content=ft.Column(
+                            [sym_name_field, sym_parts_field, pkg_dropdown],
+                            spacing=12,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            tight=True,
+                        ),
                     ),
                 ),
-                # Right 4/5 — interactive footprint image (shown after package selection)
+                # Frame 3 — bottom action bar
                 ft.Container(
-                    ref=new_sym_right_col_ref,
-                    expand=4,
+                    ref=_new_sym_bottom_bar_ref,
                     visible=False,
-                    alignment=ft.alignment.top_center,
-                    content=ft.Container(
-                        ref=new_sym_fp_preview_ref,
-                        alignment=ft.alignment.center,
-                        content=None,
-                    ),
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.symmetric(vertical=10),
+                    content=_new_sym_action_row,
                 ),
             ],
+            spacing=8,
             expand=True,
-            spacing=0,
-            vertical_alignment=ft.CrossAxisAlignment.START,
         ),
     )
 
