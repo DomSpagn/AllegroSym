@@ -220,6 +220,7 @@ def show_main(page: ft.Page, cfg: dict):
     _pin_method = {"value": None, "waiting_pin1": False}
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
+    _pin_hover_tooltip_ref          = ft.Ref[ft.Text]()
     _alphanumeric_pkg_container_ref = ft.Ref[ft.Container]()
     _alphanumeric_pkg_dd_ref        = ft.Ref[ft.Dropdown]()
     _alphanumeric_pkg_type          = {"value": None}
@@ -411,13 +412,19 @@ def show_main(page: ft.Page, cfg: dict):
             dy = y * sy
             dw = max(w * sx, 4.0)
             dh = max(h * sy, 4.0)
-            has_data = bool(pin.get("number", "").strip())
-            color = ft.colors.LIGHT_BLUE_400 if has_data else ft.colors.ORANGE_400
+            has_id   = bool(pin.get("number", "").strip())
+            has_name = bool(pin.get("name", "").strip())
+            if has_id and has_name:
+                color = ft.colors.LIGHT_BLUE_400
+            elif has_id:
+                color = ft.colors.RED_400
+            else:
+                color = ft.colors.ORANGE_400
             shapes.append(cv.Rect(
                 dx, dy, dw, dh,
                 paint=Paint(color=color, stroke_width=2, style=PaintingStyle.STROKE),
             ))
-            if has_data:
+            if has_id:
                 lbl = pin.get("number", "")
                 shapes.append(cv.Text(
                     dx + dw / 2, dy + dh / 2, lbl,
@@ -433,6 +440,19 @@ def show_main(page: ft.Page, cfg: dict):
             fp_canvas_ref.current.shapes = _build_pin_shapes()
             fp_canvas_ref.current.update()
         _check_save_enabled()
+        _check_generate_sym_enabled()
+
+    def _check_generate_sym_enabled():
+        if generate_sym_btn_ref.current is None:
+            return
+        all_populated = bool(_fp_state["pins"]) and all(
+            p.get("number", "").strip() and p.get("name", "").strip()
+            for p in _fp_state["pins"]
+        )
+        generate_sym_btn_ref.current.disabled = not all_populated
+        generate_sym_btn_ref.current.opacity  = 1.0 if all_populated else 0.35
+        if generate_sym_btn_ref.current.page:
+            generate_sym_btn_ref.current.update()
 
     # ── Layout helpers ────────────────────────────────────────────────────────
     def _set_centered_layout():
@@ -548,6 +568,11 @@ def show_main(page: ft.Page, cfg: dict):
         _alphanumeric_pkg_type["value"] = None
         if _alphanumeric_pkg_dd_ref.current:
             _alphanumeric_pkg_dd_ref.current.value = None
+        # Reset all pin IDs and names
+        for pin in _fp_state["pins"]:
+            pin["number"] = ""
+            pin["name"]   = ""
+        _refresh_canvas()
         if _alphanumeric_pkg_container_ref.current:
             _alphanumeric_pkg_container_ref.current.visible = (method == "alphanumeric")
         if method in ("clockwise", "counterclockwise"):
@@ -626,14 +651,18 @@ def show_main(page: ft.Page, cfg: dict):
             width=_interactive_w,
             height=preview_h,
         )
-        tap_layer = ft.GestureDetector(on_tap_down=_handle_img_tap, content=canvas_ctrl)
+        tap_layer = ft.GestureDetector(
+            on_tap_down=_handle_img_tap,
+            on_hover=_handle_img_hover,
+            content=canvas_ctrl,
+        )
         preview_stack = ft.Stack(
             [img_ctrl, tap_layer], width=_interactive_w, height=preview_h
         )
 
         pin_method_dd = ft.Dropdown(
             ref=pin_method_dd_ref,
-            label=s.get("select_pin_numbering", "Select the pin numbering method"),
+            label=s.get("select_pin_numbering", "Pin Numbering Method"),
             width=360,
             options=[
                 ft.dropdown.Option("manual",           s.get("pin_method_manual",           "Manual")),
@@ -668,8 +697,18 @@ def show_main(page: ft.Page, cfg: dict):
             ),
         )
 
+        hover_tooltip = ft.Text(
+            ref=_pin_hover_tooltip_ref,
+            value="",
+            size=13,
+            italic=True,
+            color=ft.colors.LIGHT_BLUE_200,
+            text_align=ft.TextAlign.CENTER,
+            visible=False,
+        )
+
         preview_column = ft.Column(
-            [pin_method_dd, alphanumeric_pkg_container, hint_text, preview_stack],
+            [pin_method_dd, alphanumeric_pkg_container, hint_text, preview_stack, hover_tooltip],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
         )
@@ -778,7 +817,31 @@ def show_main(page: ft.Page, cfg: dict):
             _pin_hint_ref.current.visible = False
         _refresh_canvas()
 
-    # ── Image tap handler ─────────────────────────────────────────────────────
+    # ── Image hover/tap handlers ────────────────────────────────────────────────
+    def _handle_img_hover(e):
+        cx, cy = e.local_x, e.local_y
+        sx = _fp_state["scale_x"]
+        sy = _fp_state["scale_y"]
+        for pin in _fp_state["pins"]:
+            x, y, w, h = pin["bbox_orig"]
+            dx = x * sx
+            dy = y * sy
+            dw = max(w * sx, 8.0)
+            dh = max(h * sy, 8.0)
+            if dx - 3 <= cx <= dx + dw + 3 and dy - 3 <= cy <= dy + dh + 3:
+                name = pin.get("name", "").strip()
+                if name and _pin_hover_tooltip_ref.current:
+                    _pin_hover_tooltip_ref.current.value   = name
+                    _pin_hover_tooltip_ref.current.visible = True
+                    _pin_hover_tooltip_ref.current.update()
+                elif _pin_hover_tooltip_ref.current and _pin_hover_tooltip_ref.current.visible:
+                    _pin_hover_tooltip_ref.current.visible = False
+                    _pin_hover_tooltip_ref.current.update()
+                return
+        if _pin_hover_tooltip_ref.current and _pin_hover_tooltip_ref.current.visible:
+            _pin_hover_tooltip_ref.current.visible = False
+            _pin_hover_tooltip_ref.current.update()
+
     def _handle_img_tap(e):
         if not _pin_method["value"]:
             return
@@ -806,6 +869,24 @@ def show_main(page: ft.Page, cfg: dict):
         number_field = ft.TextField(
             label="Pin ID", value=pin.get("number", ""), width=220, autofocus=True
         )
+        name_field = ft.TextField(
+            label=s.get("pin_name", "Pin Name"), value=pin.get("name", ""), width=220
+        )
+        neg_checkbox = ft.Checkbox(
+            label=s.get("pin_active_low", "Active Low"),
+            value=pin.get("negated", False),
+        )
+        save_btn_ref = ft.Ref[ft.ElevatedButton]()
+
+        def _check_pin_save_enabled(e=None):
+            enabled = bool(number_field.value.strip()) and bool(name_field.value.strip())
+            if save_btn_ref.current:
+                save_btn_ref.current.disabled = not enabled
+                save_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+                save_btn_ref.current.update()
+
+        number_field.on_change = _check_pin_save_enabled
+        name_field.on_change   = _check_pin_save_enabled
 
         def on_pin_save(_):
             new_id = number_field.value.strip()
@@ -820,16 +901,29 @@ def show_main(page: ft.Page, cfg: dict):
                 return
             number_field.error_text   = None
             number_field.border_color = None
-            _fp_state["pins"][pin_idx]["number"] = new_id
+            _fp_state["pins"][pin_idx]["number"]  = new_id
+            _fp_state["pins"][pin_idx]["name"]    = name_field.value.strip()
+            _fp_state["pins"][pin_idx]["negated"] = neg_checkbox.value
             page.close(dlg)
             _refresh_canvas()
 
+        _initial_enabled = bool(pin.get("number", "").strip()) and bool(pin.get("name", "").strip())
         dlg = ft.AlertDialog(
             title=ft.Text(f"Pin {pin_idx + 1}"),
-            content=ft.Column([number_field], tight=True, spacing=8),
+            content=ft.Column(
+                [number_field, name_field, neg_checkbox],
+                tight=True,
+                spacing=8,
+            ),
             actions=[
                 ft.TextButton(s.get("close", "Cancel"), on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton(s.get("save", "Save"), on_click=on_pin_save),
+                ft.ElevatedButton(
+                    s.get("save", "Save"),
+                    ref=save_btn_ref,
+                    on_click=on_pin_save,
+                    disabled=not _initial_enabled,
+                    opacity=1.0 if _initial_enabled else 0.35,
+                ),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )

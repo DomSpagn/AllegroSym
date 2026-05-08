@@ -1,92 +1,5 @@
 [
     {
-        "name": "SOIC",
-        "pins": 8,
-        "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\SOIC8\\SOIC8.png",
-        "pins_data": [
-            {
-                "bbox_orig": [
-                    66,
-                    108,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "1"
-            },
-            {
-                "bbox_orig": [
-                    282,
-                    108,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "8"
-            },
-            {
-                "bbox_orig": [
-                    66,
-                    159,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "2"
-            },
-            {
-                "bbox_orig": [
-                    282,
-                    159,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "7"
-            },
-            {
-                "bbox_orig": [
-                    66,
-                    213,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "3"
-            },
-            {
-                "bbox_orig": [
-                    282,
-                    213,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "6"
-            },
-            {
-                "bbox_orig": [
-                    66,
-                    264,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "4"
-            },
-            {
-                "bbox_orig": [
-                    282,
-                    264,
-                    69,
-                    27
-                ],
-                "name": "",
-                "number": "5"
-            }
-        ]
-    },
-    {
         "name": "UQFN",
         "pins": 10,
         "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\UQFN10\\UQFN10.png",
@@ -187,6 +100,93 @@
                     264,
                     30,
                     84
+                ],
+                "name": "",
+                "number": ""
+            }
+        ]
+    },
+    {
+        "name": "SOIC",
+        "pins": 8,
+        "footprint": "c:\\Users\\ITDOSPA\\Desktop\\AllegroSym\\Images\\SOIC8\\SOIC8.png",
+        "pins_data": [
+            {
+                "bbox_orig": [
+                    66,
+                    108,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    282,
+                    108,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    66,
+                    159,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    282,
+                    159,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    66,
+                    213,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    282,
+                    213,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    66,
+                    264,
+                    69,
+                    27
+                ],
+                "name": "",
+                "number": ""
+            },
+            {
+                "bbox_orig": [
+                    282,
+                    264,
+                    69,
+                    27
                 ],
                 "name": "",
                 "number": ""
