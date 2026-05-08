@@ -69,10 +69,19 @@ def _init_packages_db():
                 footprint   TEXT DEFAULT '',
                 pins_data   TEXT DEFAULT '[]',
                 created_at  TEXT NOT NULL DEFAULT '',
-                updated_at  TEXT NOT NULL DEFAULT '',
                 UNIQUE(name, pins)
             )
         """)
+        # Ensure created_at exists (may have been dropped in a previous migration)
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        # Drop updated_at if still present
+        try:
+            conn.execute("ALTER TABLE packages DROP COLUMN updated_at")
+        except Exception:
+            pass
 
 
 def _migrate_packages_from_json():
@@ -90,10 +99,19 @@ def _init_symbols_db():
                 parts       INTEGER DEFAULT 1,
                 package     TEXT DEFAULT '',
                 folder      TEXT DEFAULT '',
-                created_at  TEXT NOT NULL DEFAULT '',
-                updated_at  TEXT NOT NULL DEFAULT ''
+                created_at  TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Ensure created_at exists (may have been dropped in a previous migration)
+        try:
+            conn.execute("ALTER TABLE symbols ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        # Drop updated_at if still present
+        try:
+            conn.execute("ALTER TABLE symbols DROP COLUMN updated_at")
+        except Exception:
+            pass
 
 
 def _migrate_symbols_from_json():
@@ -110,10 +128,10 @@ def _migrate_symbols_from_json():
             for sym in data:
                 conn.execute(
                     "INSERT OR IGNORE INTO symbols "
-                    "(name, parts, package, folder, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "(name, parts, package, folder, created_at) "
+                    "VALUES (?,?,?,?,?)",
                     (sym["name"], sym.get("parts", 1), sym.get("package", ""),
-                     sym.get("folder", ""), now, now),
+                     sym.get("folder", ""), now),
                 )
     except Exception:
         pass
@@ -142,6 +160,7 @@ STRINGS = {
         "version": "Version",
         "build_date": "Build Date",
         "author": "Author",
+        "created_at_label": "Created",
         "close": "Close",
         "save": "Save",
         "settings_title": "Settings",
@@ -167,8 +186,7 @@ STRINGS = {
         "delete_symbol": "Delete Symbol",
         "no_symbols": "No symbols created yet.",
         "show_symbols": "Show Symbols",
-        "created_at_label": "Created",
-        "updated_at_label": "Modified",
+
         "generate_symbol": "Generate Symbol",
         "symbol_parts": "Number of Symbol Parts",
         "pin_name": "Pin Name",
@@ -202,6 +220,7 @@ STRINGS = {
         "version": "Versione",
         "build_date": "Data di Compilazione",
         "author": "Autore",
+        "created_at_label": "Creato",
         "close": "Chiudi",
         "save": "Salva",
         "settings_title": "Impostazioni",
@@ -227,8 +246,7 @@ STRINGS = {
         "delete_symbol": "Elimina Simbolo",
         "no_symbols": "Nessun simbolo ancora creato.",
         "show_symbols": "Mostra Simboli",
-        "created_at_label": "Creato",
-        "updated_at_label": "Modificato",
+
         "generate_symbol": "Genera Simbolo",
         "symbol_parts": "Numero Parti Simbolo",
         "pin_name": "Nome Pin",
@@ -289,19 +307,18 @@ def load_packages() -> list:
     try:
         with sqlite3.connect(PACKAGES_DB) as conn:
             rows = conn.execute(
-                "SELECT name, pins, footprint, pins_data, created_at, updated_at "
+                "SELECT name, pins, footprint, pins_data, created_at "
                 "FROM packages ORDER BY id"
             ).fetchall()
         result = []
-        for name, pins, footprint, pins_data_str, created_at, updated_at in rows:
+        for name, pins, footprint, pins_data_str, created_at in rows:
             try:
                 pins_data = json.loads(pins_data_str) if pins_data_str else []
             except Exception:
                 pins_data = []
             result.append({
                 "name": name, "pins": pins, "footprint": footprint,
-                "pins_data": pins_data,
-                "created_at": created_at, "updated_at": updated_at,
+                "pins_data": pins_data, "created_at": created_at,
             })
         return result
     except Exception:
@@ -325,10 +342,10 @@ def save_packages(packages: list):
                 created_at = existing.get(key, now)
                 conn.execute(
                     "INSERT INTO packages "
-                    "(name, pins, footprint, pins_data, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "(name, pins, footprint, pins_data, created_at) "
+                    "VALUES (?,?,?,?,?)",
                     (p["name"], p["pins"], p.get("footprint", ""),
-                     json.dumps(p.get("pins_data", [])), created_at, now),
+                     json.dumps(p.get("pins_data", [])), created_at),
                 )
     except Exception:
         pass
@@ -340,13 +357,13 @@ def load_symbols() -> list:
     try:
         with sqlite3.connect(SYMBOLS_DB) as conn:
             rows = conn.execute(
-                "SELECT name, parts, package, folder, created_at, updated_at "
+                "SELECT name, parts, package, folder, created_at "
                 "FROM symbols ORDER BY id"
             ).fetchall()
         return [
             {"name": name, "parts": parts, "package": package,
-             "folder": folder, "created_at": created_at, "updated_at": updated_at}
-            for name, parts, package, folder, created_at, updated_at in rows
+             "folder": folder, "created_at": created_at}
+            for name, parts, package, folder, created_at in rows
         ]
     except Exception:
         return []
@@ -368,10 +385,10 @@ def save_symbols(symbols: list):
                 created_at = existing.get(sym["name"], now)
                 conn.execute(
                     "INSERT INTO symbols "
-                    "(name, parts, package, folder, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "(name, parts, package, folder, created_at) "
+                    "VALUES (?,?,?,?,?)",
                     (sym["name"], sym.get("parts", 1), sym.get("package", ""),
-                     sym.get("folder", ""), created_at, now),
+                     sym.get("folder", ""), created_at),
                 )
     except Exception:
         pass

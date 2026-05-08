@@ -206,7 +206,6 @@ def show_main(page: ft.Page, cfg: dict):
     symbols  = load_symbols()
 
     new_sym_btn_ref            = ft.Ref[ft.IconButton]()
-    edit_sym_btn_ref           = ft.Ref[ft.IconButton]()
     del_sym_btn_ref            = ft.Ref[ft.IconButton]()
     show_sym_btn_ref           = ft.Ref[ft.IconButton]()
     save_pkg_btn_ref           = ft.Ref[ft.ElevatedButton]()
@@ -214,14 +213,13 @@ def show_main(page: ft.Page, cfg: dict):
     save_cancel_row_ref        = ft.Ref[ft.Row]()
     _bottom_bar_ref             = ft.Ref[ft.Container]()
     add_pkg_panel_title_ref    = ft.Ref[ft.Text]()
-    edit_fields_container_ref  = ft.Ref[ft.Container]()
+    edit_fields_container_ref  = ft.Ref[ft.Container]()  # kept for layout helpers
     footprint_preview_ref      = ft.Ref[ft.Container]()
     fp_canvas_ref              = ft.Ref[cv.Canvas]()
-    edit_pkg_btn_ref           = ft.Ref[ft.IconButton]()
     del_pkg_btn_ref            = ft.Ref[ft.IconButton]()
 
     _pkg_mode = {"mode": "add", "original_idx": -1}
-    _orig_pkg_values = {"name": "", "pins": "", "footprint": ""}
+    _orig_pkg_values = {"name": "", "pins": "", "footprint": ""}  # unused, kept for safety
     _fp_state = {"pins": [], "scale_x": 1.0, "scale_y": 1.0}
     _pin_method = {"value": None, "waiting_pin1": False}
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
@@ -235,17 +233,16 @@ def show_main(page: ft.Page, cfg: dict):
     new_sym_right_col_ref           = ft.Ref[ft.Container]()
     _new_sym_content_ref            = ft.Ref[ft.Container]()
     _new_sym_bottom_bar_ref         = ft.Ref[ft.Container]()
+    _new_sym_title_ref              = ft.Ref[ft.Text]()
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
-
     def update_symbol_buttons():
         pkg_ok = len(packages) > 0
         sym_ok = len(symbols) > 0
-        for ref in (new_sym_btn_ref, edit_pkg_btn_ref, del_pkg_btn_ref):
+        for ref in (new_sym_btn_ref, del_pkg_btn_ref):
             ref.current.disabled = not pkg_ok
             ref.current.opacity  = 1.0 if pkg_ok else 0.35
-        for ref in (edit_sym_btn_ref, del_sym_btn_ref):
-            ref.current.disabled = not sym_ok
-            ref.current.opacity  = 1.0 if sym_ok else 0.35
+        del_sym_btn_ref.current.disabled = not sym_ok
+        del_sym_btn_ref.current.opacity  = 1.0 if sym_ok else 0.35
         page.update()
 
     # ── Field widgets ─────────────────────────────────────────────────────────
@@ -290,26 +287,11 @@ def show_main(page: ft.Page, cfg: dict):
             pkg_pins_field.error_text   = None
             pkg_pins_field.border_color = None
 
-        if _pkg_mode["mode"] == "edit":
-            changed = (
-                pkg_name_field.value.strip() != _orig_pkg_values["name"]
-                or pins_str != _orig_pkg_values["pins"]
-                or pkg_images["footprint"] != _orig_pkg_values["footprint"]
-            )
-            # Mostra la row appena il package è caricato; Save abilitato solo se cambiato
-            row_visible = fp_ok
-            if save_pkg_btn_ref.current:
-                save_enabled = name_ok and pins_ok and changed
-                save_pkg_btn_ref.current.disabled = not save_enabled
-                save_pkg_btn_ref.current.opacity  = 1.0 if save_enabled else 0.35
-        else:
-            # Add Package: mostra la row Save/Cancel appena compare l'immagine;
-            # il pulsante Save è disabilitato finché nome e pin non sono validi.
-            row_visible = fp_ok
-            if save_pkg_btn_ref.current:
-                save_enabled = name_ok and pins_ok
-                save_pkg_btn_ref.current.disabled = not save_enabled
-                save_pkg_btn_ref.current.opacity  = 1.0 if save_enabled else 0.35
+        row_visible = fp_ok
+        if save_pkg_btn_ref.current:
+            save_enabled = name_ok and pins_ok
+            save_pkg_btn_ref.current.disabled = not save_enabled
+            save_pkg_btn_ref.current.opacity  = 1.0 if save_enabled else 0.35
         if _bottom_bar_ref.current:
             _bottom_bar_ref.current.visible = row_visible
         page.update()
@@ -361,54 +343,6 @@ def show_main(page: ft.Page, cfg: dict):
 
     del_pkg_dd = ft.Dropdown(
         label=s.get("package_name", "Package"), width=280, on_change=_on_del_dd_select
-    )
-
-    # ── Edit Package selection dropdown ──────────────────────────────────────
-    def _on_edit_sel_change(e):
-        dname = edit_sel_dd.value
-        if not dname:
-            if edit_fields_container_ref.current:
-                edit_fields_container_ref.current.visible = False
-            page.update()
-            return
-        pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
-        if pkg:
-            _pkg_mode["original_idx"] = packages.index(pkg)
-            pkg_name_field.value      = pkg["name"]
-            pkg_pins_field.value      = str(pkg["pins"])
-            fp_path_text.value        = os.path.basename(pkg.get("footprint", "")) if pkg.get("footprint") else ""
-            pkg_images["footprint"]   = pkg.get("footprint", "")
-            _orig_pkg_values["name"]      = pkg["name"]
-            _orig_pkg_values["pins"]      = str(pkg["pins"])
-            _orig_pkg_values["footprint"] = pkg.get("footprint", "")
-            _fp_state["pins"] = [
-                {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
-                for p in pkg.get("pins_data", [])
-            ]
-            if edit_fields_container_ref.current:
-                edit_fields_container_ref.current.visible = True
-            edit_sel_container.visible = False
-            if pkg.get("footprint") and os.path.isfile(pkg["footprint"]):
-                _build_static_preview(pkg["footprint"])
-            else:
-                _set_centered_layout()
-            _check_save_enabled()
-            page.update()
-
-    edit_sel_dd = ft.Dropdown(
-        label=s.get("package_name", "Package"),
-        width=280,
-        on_change=_on_edit_sel_change,
-    )
-    edit_sel_container = ft.Container(
-        visible=False,
-        expand=True,
-        alignment=ft.alignment.center,
-        content=ft.Column(
-            [edit_sel_dd],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            tight=True,
-        ),
     )
 
     # ── Canvas helpers ────────────────────────────────────────────────────────
@@ -1015,9 +949,6 @@ def show_main(page: ft.Page, cfg: dict):
         new_sym_panel.visible   = True
         page.update()
 
-    def edit_symbol(e):
-        pass  # placeholder — Generate Symbol
-
     def _generate_symbol(e):
         """Called by the Generate Symbol button — saves the symbol and creates its folder."""
         name  = sym_name_field.value.strip()
@@ -1032,7 +963,6 @@ def show_main(page: ft.Page, cfg: dict):
             "package": pkg_dropdown.value or "",
             "folder":  sym_dir,
         }
-        # Replace if same name already exists
         existing = next((i for i, s_ in enumerate(symbols) if s_["name"] == name), None)
         if existing is not None:
             symbols[existing] = entry
@@ -1094,46 +1024,12 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible      = False
         sym_list_panel.visible     = False
         pkg_list_panel.visible     = False
-        edit_sel_container.visible = False
-        if add_pkg_panel_title_ref.current:
-            add_pkg_panel_title_ref.current.value = s.get("add_package", "Add Package")
-            add_pkg_panel_title_ref.current.color = ft.colors.ORANGE
-        if edit_fields_container_ref.current:
-            edit_fields_container_ref.current.visible = True
         _reset_pkg_state()
         _set_centered_layout()
         if _bottom_bar_ref.current:
             _bottom_bar_ref.current.visible = False
         add_pkg_panel.visible = True
         _check_save_enabled()
-        page.update()
-
-    def show_edit_package(e):
-        if not packages:
-            return
-        _pkg_mode["mode"]          = "edit"
-        _pkg_mode["original_idx"]  = -1
-        new_sym_panel.visible      = False
-        del_pkg_panel.visible      = False
-        del_sym_panel.visible      = False
-        sym_list_panel.visible     = False
-        pkg_list_panel.visible     = False
-        edit_sel_dd.options        = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
-        edit_sel_dd.value          = None
-        edit_sel_container.visible = True
-        if add_pkg_panel_title_ref.current:
-            add_pkg_panel_title_ref.current.value = s.get("edit_package", "Edit Package")
-            add_pkg_panel_title_ref.current.color = ft.colors.ORANGE
-        if edit_fields_container_ref.current:
-            edit_fields_container_ref.current.visible = False
-        _reset_pkg_state()
-        _set_centered_layout()
-        if _bottom_bar_ref.current:
-            _bottom_bar_ref.current.visible = False
-        if save_pkg_btn_ref.current:
-            save_pkg_btn_ref.current.disabled = True
-            save_pkg_btn_ref.current.opacity  = 0.35
-        add_pkg_panel.visible = True
         page.update()
 
     def save_package(_):
@@ -1167,27 +1063,6 @@ def show_main(page: ft.Page, cfg: dict):
                 fp_dest = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
             packages.append({"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data})
-        else:  # edit
-            orig_pkg = packages[orig_idx]
-            old_name = orig_pkg["name"]
-            old_pins = orig_pkg["pins"]
-            fp_dest  = orig_pkg.get("footprint", "")
-            if pkg_images["footprint"] and pkg_images["footprint"] != orig_pkg.get("footprint", ""):
-                # New image uploaded: copy it, remove the old file
-                ext     = os.path.splitext(pkg_images["footprint"])[1]
-                new_fp  = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
-                shutil.copy2(pkg_images["footprint"], new_fp)
-                if fp_dest and os.path.isfile(fp_dest) and fp_dest != new_fp:
-                    os.remove(fp_dest)
-                fp_dest = new_fp
-            elif (old_name != name or old_pins != pins) and fp_dest and os.path.isfile(fp_dest):
-                # Name/pins changed: rename the file to match
-                ext     = os.path.splitext(fp_dest)[1]
-                new_fp  = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
-                os.rename(fp_dest, new_fp)
-                fp_dest = new_fp
-            packages[orig_idx] = {"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data}
-
         save_packages(packages)
         packages[:] = load_packages()
         add_pkg_panel.visible = False
@@ -1254,8 +1129,7 @@ def show_main(page: ft.Page, cfg: dict):
                             spacing=8,
                         ),
                         ft.Text(
-                            f"{s.get('created_at_label', 'Created')}: {p.get('created_at', '')}  │  "
-                            f"{s.get('updated_at_label', 'Modified')}: {p.get('updated_at', '')}",
+                            f"{s.get('created_at_label', 'Created')}: {p.get('created_at', '')}",
                             size=11, italic=True, color=ft.colors.GREY_500,
                         ),
                     ],
@@ -1294,8 +1168,7 @@ def show_main(page: ft.Page, cfg: dict):
                         ),
                         ft.Text(
                             f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  │  "
-                            f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}  │  "
-                            f"{s.get('updated_at_label', 'Modified')}: {sym.get('updated_at', '')}",
+                            f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
                             size=11, italic=True, color=ft.colors.GREY_500,
                         ),
                     ],
@@ -1439,7 +1312,8 @@ def show_main(page: ft.Page, cfg: dict):
             [
                 # Frame 1 — title
                 ft.Text(
-                    s.get("new_symbol", "New Symbol"),
+                    ref=_new_sym_title_ref,
+                    value=s.get("new_symbol", "New Symbol"),
                     size=16,
                     weight=ft.FontWeight.W_600,
                     color=ft.colors.ORANGE,
@@ -1481,29 +1355,23 @@ def show_main(page: ft.Page, cfg: dict):
         content=ft.Column(
             [
                 ft.Text(
-                    ref=add_pkg_panel_title_ref,
-                    value=s.get("add_package", "Add Package"),
+                    s.get("add_package", "Add Package"),
                     size=16,
                     weight=ft.FontWeight.W_600,
                     color=ft.colors.ORANGE,
                     text_align=ft.TextAlign.CENTER,
                 ),
-                edit_sel_container,
                 ft.Container(
-                    ref=edit_fields_container_ref,
-                    expand=True,
-                    content=ft.Container(
+                        ref=edit_fields_container_ref,
                         expand=True,
                         alignment=ft.alignment.center,
                         content=ft.Column(
-                            [pkg_name_field, pkg_pins_field, _footprint_pick_btn,
-                             fp_path_text],
+                            [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text],
                             spacing=12,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             tight=True,
                         ),
                     ),
-                ),
                 ft.Container(
                     ref=_bottom_bar_ref,
                     visible=False,
@@ -1580,13 +1448,11 @@ def show_main(page: ft.Page, cfg: dict):
                             opacity=1.0 if packages else 0.35,
                         ),
                         ft.IconButton(
-                            ref=edit_sym_btn_ref,
-                            icon=ft.icons.EDIT,
-                            icon_color=ft.colors.TEAL,
-                            tooltip=s.get("edit_symbol", "Edit Symbol"),
-                            on_click=edit_symbol,
-                            disabled=len(symbols) == 0,
-                            opacity=1.0 if symbols else 0.35,
+                            ref=show_sym_btn_ref,
+                            icon=ft.icons.VIEW_LIST,
+                            icon_color=ft.colors.GREEN,
+                            tooltip=s.get("show_symbols", "Show Symbols"),
+                            on_click=show_symbols,
                         ),
                         ft.IconButton(
                             ref=del_sym_btn_ref,
@@ -1597,13 +1463,6 @@ def show_main(page: ft.Page, cfg: dict):
                             disabled=len(symbols) == 0,
                             opacity=1.0 if symbols else 0.35,
                         ),
-                        ft.IconButton(
-                            ref=show_sym_btn_ref,
-                            icon=ft.icons.VIEW_LIST,
-                            icon_color=ft.colors.GREEN,
-                            tooltip=s.get("show_symbols", "Show Symbols"),
-                            on_click=show_symbols,
-                        ),
                         ft.VerticalDivider(width=1, thickness=1, color=ft.colors.OUTLINE),
                         ft.IconButton(
                             icon=ft.icons.MEMORY,
@@ -1612,13 +1471,10 @@ def show_main(page: ft.Page, cfg: dict):
                             on_click=show_add_package,
                         ),
                         ft.IconButton(
-                            ref=edit_pkg_btn_ref,
-                            icon=ft.icons.DEVELOPER_BOARD,
-                            icon_color=ft.colors.TEAL,
-                            tooltip=s.get("edit_package", "Edit Package"),
-                            on_click=show_edit_package,
-                            disabled=len(packages) == 0,
-                            opacity=1.0 if packages else 0.35,
+                            icon=ft.icons.LIST_ALT,
+                            icon_color=ft.colors.PURPLE,
+                            tooltip=s.get("show_packages", "Show Packages"),
+                            on_click=show_packages,
                         ),
                         ft.IconButton(
                             ref=del_pkg_btn_ref,
@@ -1628,12 +1484,6 @@ def show_main(page: ft.Page, cfg: dict):
                             on_click=show_delete_package,
                             disabled=len(packages) == 0,
                             opacity=1.0 if packages else 0.35,
-                        ),
-                        ft.IconButton(
-                            icon=ft.icons.LIST_ALT,
-                            icon_color=ft.colors.PURPLE,
-                            tooltip=s.get("show_packages", "Show Packages"),
-                            on_click=show_packages,
                         ),
                     ],
                     spacing=0,
