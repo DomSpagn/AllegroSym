@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+import math
 from collections import deque
 from datetime import date
 from pathlib import Path
@@ -122,6 +123,11 @@ STRINGS = {
         "footprint_btn": "Footprint Image",
         "pick_3d": "3D Image…",
         "delete": "Delete",
+        "select_pin_numbering": "Select the pin numbering method",
+        "pin_method_manual": "Manual",
+        "pin_method_clockwise": "Clockwise",
+        "pin_method_counterclockwise": "Counterclockwise",
+        "pin_method_alphanumeric": "Alphanumeric Matrix",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -168,6 +174,11 @@ STRINGS = {
         "footprint_btn": "Immagine Footprint",
         "pick_3d": "Immagine 3D…",
         "delete": "Elimina",
+        "select_pin_numbering": "Seleziona il metodo di numerazione dei pin",
+        "pin_method_manual": "Manuale",
+        "pin_method_clockwise": "Orario",
+        "pin_method_counterclockwise": "Antiorario",
+        "pin_method_alphanumeric": "Matrice alfanumerica",
     },
 }
 
@@ -531,6 +542,12 @@ def show_main(page: ft.Page, cfg: dict):
     del_pkg_btn_ref            = ft.Ref[ft.IconButton]()
     _pkg_mode = {"mode": "add", "original_idx": -1}
     _fp_state = {"pins": [], "scale_x": 1.0, "scale_y": 1.0}
+    _pin_method = {"value": None, "waiting_pin1": False}
+    pin_method_dd_ref = ft.Ref[ft.Dropdown]()
+    _pin_hint_ref = ft.Ref[ft.Text]()
+    _alphanumeric_pkg_container_ref = ft.Ref[ft.Container]()
+    _alphanumeric_pkg_dd_ref = ft.Ref[ft.Dropdown]()
+    _alphanumeric_pkg_type = {"value": None}
     _FP_PREVIEW_W = 900
 
     def update_symbol_buttons():
@@ -725,36 +742,46 @@ def show_main(page: ft.Page, cfg: dict):
         edit_fields_container_ref.current.update()
 
     def _set_two_col_layout():
-        """2-column layout – fields left (260 px), interactive image right."""
+        """2-column layout – fields left (260 px), interactive image right. Save/Cancel below image."""
         if edit_fields_container_ref.current is None:
             return
-        edit_fields_container_ref.current.content = ft.Row(
+        edit_fields_container_ref.current.content = ft.Column(
             [
-                ft.Container(
-                    width=260,
-                    padding=ft.padding.only(right=12),
-                    alignment=ft.alignment.center,
-                    content=ft.Column(
-                        [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text, _save_cancel_row],
-                        spacing=12,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        tight=True,
-                    ),
+                ft.Row(
+                    [
+                        ft.Container(
+                            width=260,
+                            padding=ft.padding.only(right=12),
+                            alignment=ft.alignment.center,
+                            content=ft.Column(
+                                [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text],
+                                spacing=12,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                tight=True,
+                            ),
+                        ),
+                        ft.Container(
+                            expand=4,
+                            alignment=ft.alignment.center,
+                            content=ft.Container(
+                                ref=footprint_preview_ref,
+                                visible=False,
+                                content=None,
+                                alignment=ft.alignment.center,
+                            ),
+                        ),
+                    ],
+                    expand=True,
+                    spacing=0,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(
-                    expand=4,
+                    content=_save_cancel_row,
                     alignment=ft.alignment.center,
-                    content=ft.Container(
-                        ref=footprint_preview_ref,
-                        visible=False,
-                        content=None,
-                        alignment=ft.alignment.center,
-                    ),
+                    padding=ft.padding.only(top=8),
                 ),
             ],
             expand=True,
-            spacing=0,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
         edit_fields_container_ref.current.update()
 
@@ -762,6 +789,9 @@ def show_main(page: ft.Page, cfg: dict):
         """Build the interactive footprint preview widget."""
         # Switch to 2-column layout (fields left, image right)
         _set_two_col_layout()
+        # Reset pin numbering method whenever a new image is loaded
+        _pin_method["value"] = None
+        _pin_method["waiting_pin1"] = False
         try:
             from PIL import Image as _PILImage
             img_pil = _PILImage.open(image_path)
@@ -807,15 +837,183 @@ def show_main(page: ft.Page, cfg: dict):
             width=_FP_PREVIEW_W,
             height=preview_h,
         )
+
+        def _on_pin_method_change(e):
+            method = e.control.value
+            _pin_method["value"] = method
+            _pin_method["waiting_pin1"] = False
+            _alphanumeric_pkg_type["value"] = None
+            if _alphanumeric_pkg_dd_ref.current:
+                _alphanumeric_pkg_dd_ref.current.value = None
+            if _alphanumeric_pkg_container_ref.current:
+                _alphanumeric_pkg_container_ref.current.visible = (method == "alphanumeric")
+            if method in ("clockwise", "counterclockwise"):
+                _pin_method["waiting_pin1"] = True
+                hint = (
+                    "Clicca sul Pin 1 per avviare la numerazione automatica"
+                    if lang == "it" else
+                    "Click on Pin 1 to start auto-numbering"
+                )
+                if _pin_hint_ref.current:
+                    _pin_hint_ref.current.value = hint
+                    _pin_hint_ref.current.visible = True
+            else:
+                if _pin_hint_ref.current:
+                    _pin_hint_ref.current.visible = False
+            page.update()
+
+        def _on_alphanumeric_pkg_change(e):
+            _alphanumeric_pkg_type["value"] = e.control.value
+            if e.control.value:
+                _pin_method["waiting_pin1"] = True
+                hint = (
+                    "Clicca sul Pin 1 per avviare la numerazione automatica"
+                    if lang == "it" else
+                    "Click on Pin 1 to start auto-numbering"
+                )
+                if _pin_hint_ref.current:
+                    _pin_hint_ref.current.value = hint
+                    _pin_hint_ref.current.visible = True
+            else:
+                _pin_method["waiting_pin1"] = False
+                if _pin_hint_ref.current:
+                    _pin_hint_ref.current.visible = False
+            page.update()
+
+        pin_method_dd = ft.Dropdown(
+            ref=pin_method_dd_ref,
+            label=s.get("select_pin_numbering", "Select the pin numbering method"),
+            width=360,
+            options=[
+                ft.dropdown.Option("manual",           s.get("pin_method_manual",           "Manual")),
+                ft.dropdown.Option("clockwise",        s.get("pin_method_clockwise",        "Clockwise")),
+                ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "Counterclockwise")),
+                ft.dropdown.Option("alphanumeric",     s.get("pin_method_alphanumeric",     "Alphanumeric Matrix")),
+            ],
+            on_change=_on_pin_method_change,
+        )
+        hint_text = ft.Text(
+            ref=_pin_hint_ref,
+            value="",
+            size=13,
+            italic=True,
+            color=ft.colors.AMBER,
+            text_align=ft.TextAlign.CENTER,
+            visible=False,
+        )
+        alphanumeric_pkg_dd = ft.Dropdown(
+            ref=_alphanumeric_pkg_dd_ref,
+            label=s.get("package_type", "Package Type"),
+            width=360,
+            options=[
+                ft.dropdown.Option("BGA",   "BGA"),
+                ft.dropdown.Option("LGA",   "LGA"),
+                ft.dropdown.Option("PGA",   "PGA"),
+                ft.dropdown.Option("CSP",   "CSP"),
+                ft.dropdown.Option("VGA",   "VGA"),
+                ft.dropdown.Option("LFBGA", "LFBGA"),
+                ft.dropdown.Option("SiP",   "SiP"),
+            ],
+            on_change=_on_alphanumeric_pkg_change,
+        )
+        alphanumeric_pkg_container = ft.Container(
+            ref=_alphanumeric_pkg_container_ref,
+            content=alphanumeric_pkg_dd,
+            visible=False,
+            alignment=ft.alignment.center,
+        )
+        preview_column = ft.Column(
+            [
+                pin_method_dd,
+                alphanumeric_pkg_container,
+                hint_text,
+                preview_stack,
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+        )
+
         if footprint_preview_ref.current is not None:
-            footprint_preview_ref.current.content = preview_stack
+            footprint_preview_ref.current.content = preview_column
             footprint_preview_ref.current.visible = True
             footprint_preview_ref.current.update()
 
+    def _auto_number_pins(pin1_idx: int, direction: str):
+        """Auto-number all pins clockwise or counterclockwise starting from pin1_idx."""
+        pins = _fp_state["pins"]
+        n = len(pins)
+        if n == 0:
+            return
+        # Compute center of each pin bbox
+        centers = []
+        for pin in pins:
+            x, y, w, h = pin["bbox_orig"]
+            centers.append((x + w / 2.0, y + h / 2.0))
+        # Centroid of all pin centers
+        cen_x = sum(c[0] for c in centers) / n
+        cen_y = sum(c[1] for c in centers) / n
+        # Angle of pin1 from centroid (screen Y-down: clockwise = ascending angle)
+        p1x, p1y = centers[pin1_idx]
+        base_angle = math.atan2(p1y - cen_y, p1x - cen_x)
+
+        def _rel_angle(i):
+            px, py = centers[i]
+            a = math.atan2(py - cen_y, px - cen_x) - base_angle
+            return a % (2 * math.pi)
+
+        indices = sorted(range(n), key=_rel_angle)
+        if direction == "counterclockwise":
+            rest = indices[1:]
+            rest.reverse()
+            indices = [indices[0]] + rest
+        for num, idx in enumerate(indices, start=1):
+            pins[idx]["number"] = str(num)
+        _pin_method["waiting_pin1"] = False
+        if _pin_hint_ref.current:
+            _pin_hint_ref.current.visible = False
+        _refresh_canvas()
+
+    def _auto_number_alphanumeric():
+        """Auto-number pins in alphanumeric grid order (A1, A2, … B1, B2, …)."""
+        pins = _fp_state["pins"]
+        n = len(pins)
+        if n == 0:
+            return
+        # Compute center of each pin bbox
+        centers = [(p["bbox_orig"][0] + p["bbox_orig"][2] / 2.0,
+                    p["bbox_orig"][1] + p["bbox_orig"][3] / 2.0) for p in pins]
+        # Cluster into rows by Y proximity
+        sorted_by_y = sorted(range(n), key=lambda i: centers[i][1])
+        y_vals = [centers[i][1] for i in sorted_by_y]
+        y_range = (y_vals[-1] - y_vals[0]) if n > 1 else 1
+        row_threshold = max(y_range / max(int(n ** 0.5), 1) * 0.6, 5)
+        rows = []
+        current_row = [sorted_by_y[0]]
+        for idx in sorted_by_y[1:]:
+            if abs(centers[idx][1] - centers[current_row[0]][1]) <= row_threshold:
+                current_row.append(idx)
+            else:
+                rows.append(sorted(current_row, key=lambda i: centers[i][0]))
+                current_row = [idx]
+        rows.append(sorted(current_row, key=lambda i: centers[i][0]))
+        for row_i, row_pins in enumerate(rows):
+            row_letter = chr(ord("A") + row_i)
+            for col_i, pin_idx in enumerate(row_pins):
+                pins[pin_idx]["number"] = f"{row_letter}{col_i + 1}"
+        _pin_method["waiting_pin1"] = False
+        if _pin_hint_ref.current:
+            _pin_hint_ref.current.visible = False
+        _refresh_canvas()
+        _refresh_canvas()
+
     def _handle_img_tap(e):
+        # Interactivity is locked until a pin numbering method is chosen
+        if not _pin_method["value"]:
+            return
         cx, cy = e.local_x, e.local_y
         sx = _fp_state["scale_x"]
         sy = _fp_state["scale_y"]
+        method = _pin_method["value"]
         for i, pin in enumerate(_fp_state["pins"]):
             x, y, w, h = pin["bbox_orig"]
             dx = x * sx
@@ -823,7 +1021,12 @@ def show_main(page: ft.Page, cfg: dict):
             dw = max(w * sx, 8.0)
             dh = max(h * sy, 8.0)
             if dx - 3 <= cx <= dx + dw + 3 and dy - 3 <= cy <= dy + dh + 3:
-                _show_pin_dialog(i)
+                if method in ("clockwise", "counterclockwise") and _pin_method["waiting_pin1"]:
+                    _auto_number_pins(i, method)
+                elif method == "alphanumeric" and _pin_method["waiting_pin1"]:
+                    _auto_number_alphanumeric()
+                else:
+                    _show_pin_dialog(i)
                 return
 
     def _show_pin_dialog(pin_idx: int):
@@ -911,6 +1114,9 @@ def show_main(page: ft.Page, cfg: dict):
         fp_path_text.value      = ""
         pkg_images["footprint"] = ""
         _fp_state["pins"]       = []
+        _pin_method["value"]    = None
+        _pin_method["waiting_pin1"] = False
+        _alphanumeric_pkg_type["value"] = None
         _set_centered_layout()
         if save_cancel_row_ref.current:
             save_cancel_row_ref.current.visible = False
@@ -939,6 +1145,9 @@ def show_main(page: ft.Page, cfg: dict):
         fp_path_text.value      = ""
         pkg_images["footprint"] = ""
         _fp_state["pins"]       = []
+        _pin_method["value"]    = None
+        _pin_method["waiting_pin1"] = False
+        _alphanumeric_pkg_type["value"] = None
         _set_centered_layout()
         if save_cancel_row_ref.current:
             save_cancel_row_ref.current.visible = False
@@ -1013,6 +1222,9 @@ def show_main(page: ft.Page, cfg: dict):
 
     def cancel_add_pkg(_):
         _fp_state["pins"] = []
+        _pin_method["value"] = None
+        _pin_method["waiting_pin1"] = False
+        _alphanumeric_pkg_type["value"] = None
         pkg_images["footprint"] = ""
         _set_centered_layout()
         if save_cancel_row_ref.current:
