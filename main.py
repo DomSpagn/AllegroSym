@@ -1,5 +1,7 @@
 ﻿import flet as ft
-from app import ICON_PATH, load_config, show_wizard, show_main
+from config import ICON_PATH, load_config
+from wizard import show_wizard
+from app import show_main
 
 
 def main(page: ft.Page):
