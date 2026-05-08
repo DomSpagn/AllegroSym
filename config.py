@@ -196,6 +196,12 @@ STRINGS = {
         "pin_method_clockwise": "Clockwise",
         "pin_method_counterclockwise": "Counterclockwise",
         "pin_method_alphanumeric": "Alphanumeric Matrix",
+        "search_package": "Search Package",
+        "fp_guide_step1_pre": "Go to ",
+        "fp_guide_step1_post": "  (snapeda.com)",
+        "fp_guide_step2": "Search and select the device for which you want to create the symbol.",
+        "fp_guide_step3": "Find the footprint image on the device page.",
+        "fp_guide_step4": "Save the image in PNG format where you want and with the desired name, as shown below.",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -256,6 +262,12 @@ STRINGS = {
         "pin_method_clockwise": "Orario",
         "pin_method_counterclockwise": "Antiorario",
         "pin_method_alphanumeric": "Matrice alfanumerica",
+        "search_package": "Ricerca Package",
+        "fp_guide_step1_pre": "Vai sul sito ",
+        "fp_guide_step1_post": "  (snapeda.com)",
+        "fp_guide_step2": "Cerca e seleziona il dispositivo di cui vuoi creare il simbolo.",
+        "fp_guide_step3": "Individua l'immagine del footprint nella pagina del dispositivo.",
+        "fp_guide_step4": "Salva l'immagine in formato PNG dove desideri e con il nome voluto, come mostrato di seguito.",
     },
 }
 

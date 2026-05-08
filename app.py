@@ -1076,6 +1076,17 @@ def show_main(page: ft.Page, cfg: dict):
         add_pkg_panel.visible = False
         page.update()
 
+    # ── Search Package (footprint guide) ────────────────────────────────────
+    def show_search_package(e):
+        new_sym_panel.visible  = False
+        add_pkg_panel.visible  = False
+        del_pkg_panel.visible  = False
+        del_sym_panel.visible  = False
+        sym_list_panel.visible = False
+        pkg_list_panel.visible = False
+        search_pkg_panel.visible = True
+        page.update()
+
     def show_delete_package(e):
         if not packages:
             return
@@ -1086,6 +1097,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible  = False
         sym_list_panel.visible = False
         pkg_list_panel.visible = False
+        search_pkg_panel.visible = False
         del_pkg_panel.visible  = True
         if del_btn_ref.current:
             del_btn_ref.current.disabled = True
@@ -1432,63 +1444,145 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
+    # ── Mode selector state ───────────────────────────────────────────────────
+    _mode            = {"current": "symbol"}
+    _sym_mode_btn_ref = ft.Ref[ft.ElevatedButton]()
+    _pkg_mode_btn_ref = ft.Ref[ft.ElevatedButton]()
+    _sym_actions_ref  = ft.Ref[ft.Row]()
+    _pkg_actions_ref  = ft.Ref[ft.Row]()
+
+    def _switch_mode(mode: str):
+        _mode["current"] = mode
+        is_sym = mode == "symbol"
+        if _sym_mode_btn_ref.current:
+            _sym_mode_btn_ref.current.bgcolor = ft.colors.BLUE if is_sym else ft.colors.GREY_700
+            _sym_mode_btn_ref.current.color   = ft.colors.WHITE
+            _sym_mode_btn_ref.current.update()
+        if _pkg_mode_btn_ref.current:
+            _pkg_mode_btn_ref.current.bgcolor = ft.colors.ORANGE if not is_sym else ft.colors.GREY_700
+            _pkg_mode_btn_ref.current.color   = ft.colors.WHITE
+            _pkg_mode_btn_ref.current.update()
+        if _sym_actions_ref.current:
+            _sym_actions_ref.current.visible = is_sym
+            _sym_actions_ref.current.update()
+        if _pkg_actions_ref.current:
+            _pkg_actions_ref.current.visible = not is_sym
+            _pkg_actions_ref.current.update()
+
+    def _on_symbol_mode(e):
+        _switch_mode("symbol")
+
+    def _on_package_mode(e):
+        _switch_mode("package")
+
     # ── Command bar ───────────────────────────────────────────────────────────
     top_bar = ft.Container(
         content=ft.Row(
             [
+                # ── Left: mode selector buttons ──────────────────────────────
                 ft.Row(
                     [
-                        ft.IconButton(
-                            ref=new_sym_btn_ref,
-                            icon=ft.icons.ADD_BOX,
-                            icon_color=ft.colors.GREEN,
-                            tooltip=s.get("new_symbol", "New Symbol"),
-                            on_click=new_symbol,
-                            disabled=len(packages) == 0,
-                            opacity=1.0 if packages else 0.35,
+                        ft.ElevatedButton(
+                            ref=_sym_mode_btn_ref,
+                            text="Symbol",
+                            bgcolor=ft.colors.BLUE,
+                            color=ft.colors.WHITE,
+                            on_click=_on_symbol_mode,
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(radius=4),
+                            ),
                         ),
-                        ft.IconButton(
-                            ref=show_sym_btn_ref,
-                            icon=ft.icons.VIEW_LIST,
-                            icon_color=ft.colors.GREEN,
-                            tooltip=s.get("show_symbols", "Show Symbols"),
-                            on_click=show_symbols,
-                        ),
-                        ft.IconButton(
-                            ref=del_sym_btn_ref,
-                            icon=ft.icons.DELETE_FOREVER,
-                            icon_color=ft.colors.RED,
-                            tooltip=s.get("delete_symbol", "Delete Symbol"),
-                            on_click=show_delete_symbol,
-                            disabled=len(symbols) == 0,
-                            opacity=1.0 if symbols else 0.35,
-                        ),
-                        ft.VerticalDivider(width=1, thickness=1, color=ft.colors.OUTLINE),
-                        ft.IconButton(
-                            icon=ft.icons.MEMORY,
-                            icon_color=ft.colors.BLUE,
-                            tooltip=s.get("add_package", "Add Package"),
-                            on_click=show_add_package,
-                        ),
-                        ft.IconButton(
-                            icon=ft.icons.LIST_ALT,
-                            icon_color=ft.colors.PURPLE,
-                            tooltip=s.get("show_packages", "Show Packages"),
-                            on_click=show_packages,
-                        ),
-                        ft.IconButton(
-                            ref=del_pkg_btn_ref,
-                            icon=ft.icons.MEMORY_OUTLINED,
-                            icon_color=ft.colors.RED,
-                            tooltip=s.get("delete_package", "Delete Package"),
-                            on_click=show_delete_package,
-                            disabled=len(packages) == 0,
-                            opacity=1.0 if packages else 0.35,
+                        ft.ElevatedButton(
+                            ref=_pkg_mode_btn_ref,
+                            text="Package",
+                            bgcolor=ft.colors.GREY_700,
+                            color=ft.colors.WHITE,
+                            on_click=_on_package_mode,
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(radius=4),
+                            ),
                         ),
                     ],
-                    spacing=0,
+                    spacing=4,
+                    height=40,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                # ── Center: action buttons ────────────────────────────────────
+                ft.Row(
+                    [
+                        ft.Row(
+                            ref=_sym_actions_ref,
+                            controls=[
+                                ft.IconButton(
+                                    ref=new_sym_btn_ref,
+                                    icon=ft.icons.TASK_ALT,
+                                    icon_color=ft.colors.GREEN,
+                                    tooltip=s.get("new_symbol", "New Symbol"),
+                                    on_click=new_symbol,
+                                    disabled=len(packages) == 0,
+                                    opacity=1.0 if packages else 0.35,
+                                ),
+                                ft.IconButton(
+                                    ref=show_sym_btn_ref,
+                                    icon=ft.icons.VIEW_LIST,
+                                    icon_color=ft.colors.BLUE,
+                                    tooltip=s.get("show_symbols", "Show Symbols"),
+                                    on_click=show_symbols,
+                                ),
+                                ft.IconButton(
+                                    ref=del_sym_btn_ref,
+                                    icon=ft.icons.DELETE,
+                                    icon_color=ft.colors.RED,
+                                    tooltip=s.get("delete_symbol", "Delete Symbol"),
+                                    on_click=show_delete_symbol,
+                                    disabled=len(symbols) == 0,
+                                    opacity=1.0 if symbols else 0.35,
+                                ),
+                            ],
+                            visible=True,
+                            spacing=0,
+                        ),
+                        ft.Row(
+                            ref=_pkg_actions_ref,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.icons.MEMORY,
+                                    icon_color=ft.colors.GREEN,
+                                    tooltip=s.get("add_package", "Add Package"),
+                                    on_click=show_add_package,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.LIST_ALT,
+                                    icon_color=ft.colors.BLUE,
+                                    tooltip=s.get("show_packages", "Show Packages"),
+                                    on_click=show_packages,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.SEARCH,
+                                    icon_color=ft.colors.ORANGE,
+                                    tooltip=s.get("search_package", "Search Package"),
+                                    on_click=show_search_package,
+                                ),
+                                ft.IconButton(
+                                    ref=del_pkg_btn_ref,
+                                    icon=ft.icons.DELETE_FOREVER,
+                                    icon_color=ft.colors.RED,
+                                    tooltip=s.get("delete_package", "Delete Package"),
+                                    on_click=show_delete_package,
+                                    disabled=len(packages) == 0,
+                                    opacity=1.0 if packages else 0.35,
+                                ),
+                            ],
+                            visible=False,
+                            spacing=0,
+                        ),
+                    ],
+                    expand=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     height=40,
                 ),
+                # ── Right: settings/help ──────────────────────────────────────
                 ft.Row(
                     [
                         ft.PopupMenuButton(
@@ -1548,13 +1642,95 @@ def show_main(page: ft.Page, cfg: dict):
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.symmetric(horizontal=8, vertical=2),
+        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+    )
+
+    def _step_row(number: str, spans):
+        return ft.Row(
+            [
+                ft.Container(
+                    content=ft.Text(
+                        number,
+                        size=15,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.colors.ORANGE,
+                    ),
+                    width=28,
+                    alignment=ft.alignment.top_left,
+                ),
+                ft.Text(spans=spans, size=14),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
+
+    search_pkg_panel = ft.Container(
+        visible=False,
+        expand=True,
+        padding=ft.padding.symmetric(horizontal=32, vertical=20),
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.icons.SEARCH, color=ft.colors.ORANGE, size=20),
+                        ft.Text(
+                            s.get("search_package", "Search Package"),
+                            size=16,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.colors.ORANGE,
+                        ),
+                        ft.Container(expand=True),
+                        ft.TextButton(
+                            s.get("close", "Close"),
+                            on_click=lambda _: (
+                                setattr(search_pkg_panel, "visible", False)
+                                or page.update()
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
+                ),
+                ft.Divider(height=1),
+                ft.Column(
+                    [
+                        _step_row("1.", [
+                            ft.TextSpan(s.get("fp_guide_step1_pre", "Go to ")),
+                            ft.TextSpan(
+                                "SnapEDA",
+                                on_click=lambda _: page.launch_url("https://www.snapeda.com"),
+                                style=ft.TextStyle(
+                                    color=ft.colors.BLUE,
+                                    decoration=ft.TextDecoration.UNDERLINE,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                            ),
+                            ft.TextSpan(s.get("fp_guide_step1_post", "  (snapeda.com)")),
+                        ]),
+                        _step_row("2.", [
+                            ft.TextSpan(s.get("fp_guide_step2", "Search and select the device for which you want to create the symbol.")),
+                        ]),
+                        _step_row("3.", [
+                            ft.TextSpan(s.get("fp_guide_step3", "Find the footprint image on the device page.")),
+                        ]),
+                        _step_row("4.", [
+                            ft.TextSpan(s.get("fp_guide_step4", "Save the image in PNG format where you want and with the desired name, as shown below.")),
+                        ]),
+                    ],
+                    spacing=16,
+                ),
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        ),
     )
 
     body = ft.Column(
         [new_sym_panel, del_sym_panel, add_pkg_panel, del_pkg_panel,
-         pkg_list_panel, sym_list_panel],
+         pkg_list_panel, sym_list_panel, search_pkg_panel],
         expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )
@@ -1565,7 +1741,7 @@ def show_main(page: ft.Page, cfg: dict):
             route="/main",
             controls=[
                 ft.Column(
-                    [top_bar, ft.Divider(height=1), body],
+                    [top_bar, body],
                     expand=True,
                 )
             ],
