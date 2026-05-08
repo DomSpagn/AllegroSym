@@ -19,3 +19,5 @@ allegrosym_conf.json
 # PyInstaller intermediate build artefacts
 build/
 dist/
+JSONS/
+db/
