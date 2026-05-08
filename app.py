@@ -8,10 +8,13 @@ import flet as ft
 import flet.canvas as cv
 from flet.core.painting import Paint, PaintingStyle
 
+import config as _cfg_mod
 from config import (
     APP_VERSION, BUILD_DATE, AUTHOR, ICON_PATH,
+    SYSTEM_IMAGES_DIR,
     get_strings, save_config,
     load_packages, save_packages, pkg_display_name,
+    load_symbols, save_symbols,
 )
 from pin_detection import detect_orange_pins
 from wizard import show_wizard  # re-exported for main.py compatibility
@@ -200,9 +203,12 @@ def show_main(page: ft.Page, cfg: dict):
 
     # ── Package management state ──────────────────────────────────────────────
     packages = load_packages()
+    symbols  = load_symbols()
 
     new_sym_btn_ref            = ft.Ref[ft.IconButton]()
     edit_sym_btn_ref           = ft.Ref[ft.IconButton]()
+    del_sym_btn_ref            = ft.Ref[ft.IconButton]()
+    show_sym_btn_ref           = ft.Ref[ft.IconButton]()
     save_pkg_btn_ref           = ft.Ref[ft.ElevatedButton]()
     del_btn_ref                = ft.Ref[ft.ElevatedButton]()
     save_cancel_row_ref        = ft.Ref[ft.Row]()
@@ -232,10 +238,14 @@ def show_main(page: ft.Page, cfg: dict):
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
 
     def update_symbol_buttons():
-        enabled = len(packages) > 0
-        for ref in (new_sym_btn_ref, edit_sym_btn_ref, edit_pkg_btn_ref, del_pkg_btn_ref):
-            ref.current.disabled = not enabled
-            ref.current.opacity  = 1.0 if enabled else 0.35
+        pkg_ok = len(packages) > 0
+        sym_ok = len(symbols) > 0
+        for ref in (new_sym_btn_ref, edit_pkg_btn_ref, del_pkg_btn_ref):
+            ref.current.disabled = not pkg_ok
+            ref.current.opacity  = 1.0 if pkg_ok else 0.35
+        for ref in (edit_sym_btn_ref, del_sym_btn_ref):
+            ref.current.disabled = not sym_ok
+            ref.current.opacity  = 1.0 if sym_ok else 0.35
         page.update()
 
     # ── Field widgets ─────────────────────────────────────────────────────────
@@ -866,11 +876,12 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _show_pin_dialog(pin_idx: int):
         pin = _fp_state["pins"][pin_idx]
+        has_id = bool(pin.get("number", "").strip())
         number_field = ft.TextField(
-            label="Pin ID", value=pin.get("number", ""), width=220, autofocus=True
+            label="Pin ID", value=pin.get("number", ""), width=220, autofocus=not has_id
         )
         name_field = ft.TextField(
-            label=s.get("pin_name", "Pin Name"), value=pin.get("name", ""), width=220
+            label=s.get("pin_name", "Pin Name"), value=pin.get("name", ""), width=220, autofocus=has_id
         )
         neg_checkbox = ft.Checkbox(
             label=s.get("pin_active_low", "Active Low"),
@@ -988,6 +999,8 @@ def show_main(page: ft.Page, cfg: dict):
     def new_symbol(e):
         add_pkg_panel.visible   = False
         del_pkg_panel.visible   = False
+        del_sym_panel.visible   = False
+        sym_list_panel.visible  = False
         pkg_list_panel.visible  = False
         sym_name_field.value    = ""
         sym_parts_field.value   = ""
@@ -1003,13 +1016,83 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     def edit_symbol(e):
-        pass  # placeholder
+        pass  # placeholder — Generate Symbol
+
+    def _generate_symbol(e):
+        """Called by the Generate Symbol button — saves the symbol and creates its folder."""
+        name  = sym_name_field.value.strip()
+        parts_str = sym_parts_field.value.strip()
+        if not name:
+            return
+        sym_dir = os.path.join(os.path.dirname(__file__), "Symbols", name)
+        os.makedirs(sym_dir, exist_ok=True)
+        entry = {
+            "name":    name,
+            "parts":   int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1,
+            "package": pkg_dropdown.value or "",
+            "folder":  sym_dir,
+        }
+        # Replace if same name already exists
+        existing = next((i for i, s_ in enumerate(symbols) if s_["name"] == name), None)
+        if existing is not None:
+            symbols[existing] = entry
+        else:
+            symbols.append(entry)
+        save_symbols(symbols)
+        symbols[:] = load_symbols()
+        new_sym_panel.visible = False
+        update_symbol_buttons()
+
+    def _on_del_sym_dd_select(e):
+        enabled = bool(del_sym_dd.value)
+        if del_sym_confirm_btn_ref.current:
+            del_sym_confirm_btn_ref.current.disabled = not enabled
+            del_sym_confirm_btn_ref.current.opacity  = 1.0 if enabled else 0.35
+            page.update()
+
+    def show_delete_symbol(e):
+        if not symbols:
+            return
+        del_sym_dd.options = [ft.dropdown.Option(s_["name"]) for s_ in symbols]
+        del_sym_dd.value   = None
+        new_sym_panel.visible  = False
+        add_pkg_panel.visible  = False
+        del_pkg_panel.visible  = False
+        sym_list_panel.visible = False
+        pkg_list_panel.visible = False
+        if del_sym_confirm_btn_ref.current:
+            del_sym_confirm_btn_ref.current.disabled = True
+            del_sym_confirm_btn_ref.current.opacity  = 0.35
+        del_sym_panel.visible = True
+        page.update()
+
+    def confirm_delete_symbol(_):
+        name = del_sym_dd.value
+        if not name:
+            return
+        sym = next((s_ for s_ in symbols if s_["name"] == name), None)
+        if not sym:
+            return
+        symbols[:] = [s_ for s_ in symbols if s_["name"] != name]
+        save_symbols(symbols)
+        symbols[:] = load_symbols()
+        folder = sym.get("folder", "")
+        if folder and os.path.isdir(folder):
+            shutil.rmtree(folder)
+        del_sym_panel.visible = False
+        update_symbol_buttons()
+
+    def cancel_delete_symbol(_):
+        del_sym_panel.visible = False
+        page.update()
 
     def show_add_package(e):
         _pkg_mode["mode"]          = "add"
         _pkg_mode["original_idx"]  = -1
         new_sym_panel.visible      = False
         del_pkg_panel.visible      = False
+        del_sym_panel.visible      = False
+        sym_list_panel.visible     = False
         pkg_list_panel.visible     = False
         edit_sel_container.visible = False
         if add_pkg_panel_title_ref.current:
@@ -1032,6 +1115,8 @@ def show_main(page: ft.Page, cfg: dict):
         _pkg_mode["original_idx"]  = -1
         new_sym_panel.visible      = False
         del_pkg_panel.visible      = False
+        del_sym_panel.visible      = False
+        sym_list_panel.visible     = False
         pkg_list_panel.visible     = False
         edit_sel_dd.options        = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
         edit_sel_dd.value          = None
@@ -1076,33 +1161,35 @@ def show_main(page: ft.Page, cfg: dict):
         ]
 
         if mode == "add":
-            pkg_dir = os.path.join(os.path.dirname(__file__), "Images", f"{name}{pins}")
-            os.makedirs(pkg_dir, exist_ok=True)
             fp_dest = ""
             if pkg_images["footprint"]:
                 ext     = os.path.splitext(pkg_images["footprint"])[1]
-                fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
+                fp_dest = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
                 shutil.copy2(pkg_images["footprint"], fp_dest)
             packages.append({"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data})
         else:  # edit
             orig_pkg = packages[orig_idx]
             old_name = orig_pkg["name"]
             old_pins = orig_pkg["pins"]
-            old_dir  = os.path.join(os.path.dirname(__file__), "Images", f"{old_name}{old_pins}")
-            pkg_dir  = os.path.join(os.path.dirname(__file__), "Images", f"{name}{pins}")
-            if (old_name != name or old_pins != pins) and os.path.isdir(old_dir):
-                os.rename(old_dir, pkg_dir)
-            os.makedirs(pkg_dir, exist_ok=True)
-            fp_dest = orig_pkg.get("footprint", "")
-            if (old_name != name or old_pins != pins) and fp_dest:
-                fp_dest = os.path.join(pkg_dir, os.path.basename(fp_dest))
+            fp_dest  = orig_pkg.get("footprint", "")
             if pkg_images["footprint"] and pkg_images["footprint"] != orig_pkg.get("footprint", ""):
+                # New image uploaded: copy it, remove the old file
                 ext     = os.path.splitext(pkg_images["footprint"])[1]
-                fp_dest = os.path.join(pkg_dir, f"{name}{pins}{ext}")
-                shutil.copy2(pkg_images["footprint"], fp_dest)
+                new_fp  = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
+                shutil.copy2(pkg_images["footprint"], new_fp)
+                if fp_dest and os.path.isfile(fp_dest) and fp_dest != new_fp:
+                    os.remove(fp_dest)
+                fp_dest = new_fp
+            elif (old_name != name or old_pins != pins) and fp_dest and os.path.isfile(fp_dest):
+                # Name/pins changed: rename the file to match
+                ext     = os.path.splitext(fp_dest)[1]
+                new_fp  = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
+                os.rename(fp_dest, new_fp)
+                fp_dest = new_fp
             packages[orig_idx] = {"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data}
 
         save_packages(packages)
+        packages[:] = load_packages()
         add_pkg_panel.visible = False
         update_symbol_buttons()
 
@@ -1121,6 +1208,8 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_dd.value       = None
         new_sym_panel.visible  = False
         add_pkg_panel.visible  = False
+        del_sym_panel.visible  = False
+        sym_list_panel.visible = False
         pkg_list_panel.visible = False
         del_pkg_panel.visible  = True
         if del_btn_ref.current:
@@ -1135,12 +1224,12 @@ def show_main(page: ft.Page, cfg: dict):
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
         if not pkg:
             return
-        folder_name = f"{pkg['name']}{pkg['pins']}"
+        fp_path = pkg.get("footprint", "")
         packages[:] = [p for p in packages if pkg_display_name(p) != dname]
         save_packages(packages)
-        pkg_dir = os.path.join(os.path.dirname(__file__), "Images", folder_name)
-        if os.path.isdir(pkg_dir):
-            shutil.rmtree(pkg_dir)
+        packages[:] = load_packages()
+        if fp_path and os.path.isfile(fp_path):
+            os.remove(fp_path)
         del_pkg_panel.visible = False
         update_symbol_buttons()
 
@@ -1152,12 +1241,25 @@ def show_main(page: ft.Page, cfg: dict):
         new_sym_panel.visible  = False
         add_pkg_panel.visible  = False
         del_pkg_panel.visible  = False
+        del_sym_panel.visible  = False
+        sym_list_panel.visible = False
         if packages:
             pkg_list_col.controls = [
-                ft.Row(
-                    [ft.Icon(ft.icons.MEMORY, size=16),
-                     ft.Text(pkg_display_name(p), size=13, weight=ft.FontWeight.W_500, expand=True)],
-                    spacing=8,
+                ft.Column(
+                    [
+                        ft.Row(
+                            [ft.Icon(ft.icons.MEMORY, size=16),
+                             ft.Text(pkg_display_name(p), size=13,
+                                     weight=ft.FontWeight.W_500, expand=True)],
+                            spacing=8,
+                        ),
+                        ft.Text(
+                            f"{s.get('created_at_label', 'Created')}: {p.get('created_at', '')}  │  "
+                            f"{s.get('updated_at_label', 'Modified')}: {p.get('updated_at', '')}",
+                            size=11, italic=True, color=ft.colors.GREY_500,
+                        ),
+                    ],
+                    spacing=2,
                 )
                 for p in packages
             ]
@@ -1172,6 +1274,46 @@ def show_main(page: ft.Page, cfg: dict):
             )
         )
         pkg_list_panel.visible = True
+        page.update()
+
+    def show_symbols(e):
+        new_sym_panel.visible  = False
+        add_pkg_panel.visible  = False
+        del_pkg_panel.visible  = False
+        del_sym_panel.visible  = False
+        pkg_list_panel.visible = False
+        if symbols:
+            sym_list_col.controls = [
+                ft.Column(
+                    [
+                        ft.Row(
+                            [ft.Icon(ft.icons.CATEGORY, size=16),
+                             ft.Text(sym["name"], size=13,
+                                     weight=ft.FontWeight.W_500, expand=True)],
+                            spacing=8,
+                        ),
+                        ft.Text(
+                            f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  │  "
+                            f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}  │  "
+                            f"{s.get('updated_at_label', 'Modified')}: {sym.get('updated_at', '')}",
+                            size=11, italic=True, color=ft.colors.GREY_500,
+                        ),
+                    ],
+                    spacing=2,
+                )
+                for sym in symbols
+            ]
+        else:
+            sym_list_col.controls = [
+                ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True),
+            ]
+        sym_list_col.controls.append(
+            ft.TextButton(
+                s.get("close", "Close"),
+                on_click=lambda _: (setattr(sym_list_panel, "visible", False), page.update()),
+            )
+        )
+        sym_list_panel.visible = True
         page.update()
 
     # ── Panels ────────────────────────────────────────────────────────────────
@@ -1191,7 +1333,77 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
+    sym_list_col = ft.Column([], spacing=6)
+
+    sym_list_panel = ft.Container(
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=24, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(s.get("show_symbols", "Show Symbols"), size=16,
+                        weight=ft.FontWeight.W_600, color=ft.colors.BLUE),
+                ft.Divider(height=1),
+                sym_list_col,
+            ],
+            spacing=10,
+        ),
+    )
+
     pkg_dropdown.on_change = _on_pkg_type_change
+
+    # \u2500\u2500 Delete Symbol dropdown + confirm button ref \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    del_sym_confirm_btn_ref = ft.Ref[ft.ElevatedButton]()
+
+    del_sym_dd = ft.Dropdown(
+        label=s.get("symbol_name", "Symbol Name"), width=280, on_change=_on_del_sym_dd_select
+    )
+
+    del_sym_panel = ft.Container(
+        visible=False,
+        expand=True,
+        padding=ft.padding.symmetric(horizontal=12, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(
+                    s.get("delete_symbol", "Delete Symbol"),
+                    size=16,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.colors.ORANGE,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Container(
+                    expand=True,
+                    alignment=ft.alignment.center,
+                    content=ft.Column(
+                        [
+                            del_sym_dd,
+                            ft.Row(
+                                [
+                                    ft.ElevatedButton(
+                                        s.get("delete", "Delete"),
+                                        ref=del_sym_confirm_btn_ref,
+                                        icon=ft.icons.DELETE,
+                                        color=ft.colors.RED,
+                                        on_click=confirm_delete_symbol,
+                                        disabled=True,
+                                        opacity=0.35,
+                                    ),
+                                    ft.TextButton(s.get("close", "Cancel"), on_click=cancel_delete_symbol),
+                                ],
+                                spacing=8,
+                                alignment=ft.MainAxisAlignment.CENTER,
+                            ),
+                        ],
+                        spacing=12,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        tight=True,
+                    ),
+                ),
+            ],
+            spacing=8,
+            expand=True,
+        ),
+    )
 
     _new_sym_action_row = ft.Row(
         [
@@ -1199,7 +1411,7 @@ def show_main(page: ft.Page, cfg: dict):
                 s.get("generate_symbol", "Generate Symbol"),
                 ref=generate_sym_btn_ref,
                 icon=ft.icons.BOLT,
-                on_click=edit_symbol,
+                on_click=_generate_symbol,
                 color=ft.colors.WHITE,
                 bgcolor=ft.colors.GREEN_700,
                 disabled=True,
@@ -1373,8 +1585,24 @@ def show_main(page: ft.Page, cfg: dict):
                             icon_color=ft.colors.TEAL,
                             tooltip=s.get("edit_symbol", "Edit Symbol"),
                             on_click=edit_symbol,
-                            disabled=len(packages) == 0,
-                            opacity=1.0 if packages else 0.35,
+                            disabled=len(symbols) == 0,
+                            opacity=1.0 if symbols else 0.35,
+                        ),
+                        ft.IconButton(
+                            ref=del_sym_btn_ref,
+                            icon=ft.icons.DELETE_FOREVER,
+                            icon_color=ft.colors.RED,
+                            tooltip=s.get("delete_symbol", "Delete Symbol"),
+                            on_click=show_delete_symbol,
+                            disabled=len(symbols) == 0,
+                            opacity=1.0 if symbols else 0.35,
+                        ),
+                        ft.IconButton(
+                            ref=show_sym_btn_ref,
+                            icon=ft.icons.VIEW_LIST,
+                            icon_color=ft.colors.GREEN,
+                            tooltip=s.get("show_symbols", "Show Symbols"),
+                            on_click=show_symbols,
                         ),
                         ft.VerticalDivider(width=1, thickness=1, color=ft.colors.OUTLINE),
                         ft.IconButton(
@@ -1475,7 +1703,8 @@ def show_main(page: ft.Page, cfg: dict):
     )
 
     body = ft.Column(
-        [new_sym_panel, add_pkg_panel, del_pkg_panel, pkg_list_panel],
+        [new_sym_panel, del_sym_panel, add_pkg_panel, del_pkg_panel,
+         pkg_list_panel, sym_list_panel],
         expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )

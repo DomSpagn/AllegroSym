@@ -2,7 +2,7 @@ import os
 
 import flet as ft
 
-from config import get_strings, save_config
+from config import get_strings, save_config, SYSTEM_IMAGES_DIR
 
 
 def show_wizard(page: ft.Page, on_complete):
@@ -41,15 +41,17 @@ def show_wizard(page: ft.Page, on_complete):
         page.theme_mode = ft.ThemeMode.DARK if e.control.value == "dark" else ft.ThemeMode.LIGHT
         page.update()
 
-    file_picker = ft.FilePicker()
-    page.overlay.append(file_picker)
-
-    async def pick_folder(_):
-        result = await file_picker.get_directory_path()
-        if result:
-            chosen_folder["path"] = os.path.join(result, "ASymOut")
+    def on_folder_picked(e: ft.FilePickerResultEvent):
+        if e.path:
+            chosen_folder["path"] = os.path.join(e.path, "ASymOut")
             output_folder_text.current.value = chosen_folder["path"]
             page.update()
+
+    file_picker = ft.FilePicker(on_result=on_folder_picked)
+    page.overlay.append(file_picker)
+
+    def pick_folder(_):
+        file_picker.get_directory_path()
 
     def on_finish(e):
         lang  = lang_dd_ref.current.value  or "en"
@@ -59,8 +61,8 @@ def show_wizard(page: ft.Page, on_complete):
             os.makedirs(out, exist_ok=True)
         cfg = {"language": lang, "theme": theme, "output_folder": out}
         save_config(cfg)
-        if file_picker in page.services:
-            page.services.remove(file_picker)
+        if file_picker in page.overlay:
+            page.overlay.remove(file_picker)
         on_complete(cfg)
 
     page.views.clear()
@@ -70,7 +72,7 @@ def show_wizard(page: ft.Page, on_complete):
             controls=[
                 ft.Column(
                     [
-                        ft.Image(src="AllegroSym.png", width=200, height=200),
+                        ft.Image(src=os.path.join(SYSTEM_IMAGES_DIR, "AllegroSym.png"), width=200, height=200),
                         ft.Divider(),
                         ft.Text(ref=lbl_lang, value=s["language"], size=14, weight=ft.FontWeight.W_600),
                         ft.Dropdown(

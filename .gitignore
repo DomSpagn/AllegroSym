@@ -9,9 +9,6 @@ __pycache__/
 # Requirements
 requirements.txt
 
-# Output test folder
-ASymOut/
-
 # Configuration (contains user-specific paths)
 allegrosym_conf.json
 
@@ -20,4 +17,3 @@ allegrosym_conf.json
 build/
 dist/
 JSONS/
-db/
