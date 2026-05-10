@@ -1358,14 +1358,26 @@ def show_main(page: ft.Page, cfg: dict):
             return str(v) if v is not None else ""
 
         data_rows = [
-            ft.DataRow(cells=[ft.DataCell(ft.Text(_cell_val(row, c))) for c in display_columns])
+            ft.DataRow(cells=[
+                ft.DataCell(ft.Container(
+                    content=ft.Text(_cell_val(row, c)),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                )) for c in display_columns
+            ])
             for row in rows
         ] if rows else [
-            ft.DataRow(cells=[ft.DataCell(ft.Text("—")) for _ in display_columns])
+            ft.DataRow(cells=[
+                ft.DataCell(ft.Container(
+                    content=ft.Text("—"),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                )) for _ in display_columns
+            ])
         ]
 
         table = ft.DataTable(
-            columns=[ft.DataColumn(ft.Text(c, weight=ft.FontWeight.BOLD)) for c in display_columns],
+            columns=[ft.DataColumn(ft.Text(c, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)) for c in display_columns],
             rows=data_rows,
             border=ft.border.all(1, ft.colors.OUTLINE),
             border_radius=ft.border_radius.all(6),
