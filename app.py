@@ -952,13 +952,18 @@ def show_main(page: ft.Page, cfg: dict):
     def _generate_symbol(e):
         """Called by the Generate Symbol button — saves the symbol and creates its folder."""
         import sqlite3
-        name  = sym_name_field.value.strip()
+        name      = sym_name_field.value.strip()
         parts_str = sym_parts_field.value.strip()
         if not name:
             return
+        num_parts   = int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1
+        package_type = pkg_dropdown.value or ""
+        pins        = _fp_state.get("pins", [])
+
         sym_dir = os.path.join(out_folder, "Symbols", name)
         os.makedirs(sym_dir, exist_ok=True)
-        # Crea/aggiorna il database SQLite del simbolo
+
+        # Crea/popola il database SQLite del simbolo
         db_path = os.path.join(sym_dir, f"{name}.db")
         con = sqlite3.connect(db_path)
         con.execute(
@@ -968,12 +973,31 @@ def show_main(page: ft.Page, cfg: dict):
             "\"Pin ID\" TEXT,"
             "\"Pin Name\" TEXT)"
         )
+        con.execute("DELETE FROM symbol_data")
+        rows = []
+        if pins:
+            for part_num in range(1, num_parts + 1):
+                for pin in pins:
+                    rows.append((
+                        str(part_num),
+                        package_type,
+                        pin.get("number", ""),
+                        pin.get("name", ""),
+                    ))
+        else:
+            # Nessun pin definito: inserisce una riga per parte con i dati base
+            for part_num in range(1, num_parts + 1):
+                rows.append((str(part_num), package_type, "", ""))
+        con.executemany(
+            "INSERT INTO symbol_data VALUES (?, ?, ?, ?)", rows
+        )
         con.commit()
         con.close()
+
         entry = {
             "name":    name,
-            "parts":   int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1,
-            "package": pkg_dropdown.value or "",
+            "parts":   num_parts,
+            "package": package_type,
             "folder":  sym_dir,
         }
         existing = next((i for i, s_ in enumerate(symbols) if s_["name"] == name), None)
@@ -1195,6 +1219,74 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_list_panel.visible = True
         page.update()
 
+    def _show_symbol_db_popup(sym):
+        import sqlite3
+        folder = sym.get("folder", "")
+        name   = sym.get("name", "")
+        db_path = os.path.join(folder, f"{name}.db")
+        rows = []
+        if os.path.isfile(db_path):
+            try:
+                con = sqlite3.connect(db_path)
+                # Ordina per Pin ID: prima numericamente se possibile, poi alfabeticamente
+                cur = con.execute(
+                    "SELECT \"Symbol Part Number\", \"Package Type\", \"Pin ID\", \"Pin Name\" "
+                    "FROM symbol_data "
+                    "ORDER BY CAST(\"Pin ID\" AS INTEGER), \"Pin ID\""
+                )
+                rows = cur.fetchall()
+                con.close()
+            except Exception:
+                rows = []
+
+        # Estrai Package Type dal primo record (tutti uguali)
+        package_type = rows[0][1] if rows else ""
+
+        # Colonne visibili: Pin ID, Pin Name, Symbol Part Number (Package Type escluso)
+        display_columns = ["Pin ID", "Pin Name", "Symbol Part Number"]
+
+        def _cell_val(row, col):
+            mapping = {"Symbol Part Number": 0, "Package Type": 1, "Pin ID": 2, "Pin Name": 3}
+            v = row[mapping[col]]
+            return str(v) if v is not None else ""
+
+        data_rows = [
+            ft.DataRow(cells=[ft.DataCell(ft.Text(_cell_val(row, c))) for c in display_columns])
+            for row in rows
+        ] if rows else [
+            ft.DataRow(cells=[ft.DataCell(ft.Text("—")) for _ in display_columns])
+        ]
+
+        table = ft.DataTable(
+            columns=[ft.DataColumn(ft.Text(c, weight=ft.FontWeight.BOLD)) for c in display_columns],
+            rows=data_rows,
+            border=ft.border.all(1, ft.colors.OUTLINE),
+            border_radius=ft.border_radius.all(6),
+            horizontal_lines=ft.BorderSide(1, ft.colors.OUTLINE),
+            heading_row_color=ft.colors.with_opacity(0.05, ft.colors.ON_SURFACE),
+        )
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(name, weight=ft.FontWeight.BOLD),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(package_type, size=13, italic=True, color=ft.colors.ORANGE) if package_type else ft.Container(),
+                        ft.Container(height=8),
+                        ft.Container(
+                            content=ft.Row([table], scroll=ft.ScrollMode.AUTO, alignment=ft.MainAxisAlignment.CENTER),
+                            alignment=ft.alignment.center,
+                        ),
+                    ],
+                    tight=True,
+                ),
+                width=680,
+            ),
+            actions=[ft.TextButton(s.get("close", "Close"), on_click=lambda _: page.close(dlg))],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.open(dlg)
+
     def show_symbols(e):
         new_sym_panel.visible  = False
         add_pkg_panel.visible  = False
@@ -1202,25 +1294,30 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible  = False
         pkg_list_panel.visible = False
         if symbols:
-            sym_list_col.controls = [
-                ft.Column(
-                    [
-                        ft.Row(
-                            [ft.Icon(ft.icons.CATEGORY, size=16),
-                             ft.Text(sym["name"], size=13,
-                                     weight=ft.FontWeight.W_500, expand=True)],
-                            spacing=8,
-                        ),
-                        ft.Text(
-                            f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  │  "
-                            f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
-                            size=11, italic=True, color=ft.colors.GREY_500,
-                        ),
-                    ],
-                    spacing=2,
+            def _make_sym_row(sym):
+                return ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [ft.Icon(ft.icons.CATEGORY, size=16),
+                                 ft.Text(sym["name"], size=13,
+                                         weight=ft.FontWeight.W_500, expand=True)],
+                                spacing=8,
+                            ),
+                            ft.Text(
+                                f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  │  "
+                                f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
+                                size=11, italic=True, color=ft.colors.GREY_500,
+                            ),
+                        ],
+                        spacing=2,
+                    ),
+                    on_click=lambda _, sym_=sym: _show_symbol_db_popup(sym_),
+                    ink=True,
+                    border_radius=ft.border_radius.all(6),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 )
-                for sym in symbols
-            ]
+            sym_list_col.controls = [_make_sym_row(sym) for sym in symbols]
         else:
             sym_list_col.controls = [
                 ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True),
