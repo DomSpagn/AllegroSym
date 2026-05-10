@@ -201,7 +201,7 @@ STRINGS = {
         "fp_guide_step1_post": "  (snapeda.com).",
         "fp_guide_step2": "Search and select the device for which you want to create the symbol.",
         "fp_guide_step3": "Find the footprint image on the device page.",
-        "fp_guide_step4": "Save the image in PNG format where you want and with the desired name, as shown below.",
+        "fp_guide_step4": "Save the image in PNG format where you want and with the desired name.",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -267,7 +267,7 @@ STRINGS = {
         "fp_guide_step1_post": "  (snapeda.com).",
         "fp_guide_step2": "Cerca e seleziona il dispositivo di cui vuoi creare il simbolo.",
         "fp_guide_step3": "Individua l'immagine del footprint nella pagina del dispositivo.",
-        "fp_guide_step4": "Salva l'immagine in formato PNG dove desideri e con il nome voluto, come mostrato di seguito.",
+        "fp_guide_step4": "Salva l'immagine in formato PNG dove desideri e con il nome voluto.",
     },
 }
 
