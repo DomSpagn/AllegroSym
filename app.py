@@ -397,6 +397,10 @@ def show_main(page: ft.Page, cfg: dict):
         generate_sym_btn_ref.current.opacity  = 1.0 if all_populated else 0.35
         if generate_sym_btn_ref.current.page:
             generate_sym_btn_ref.current.update()
+        # Nascondi l'hint quando il pulsante Generate Symbol è abilitato
+        if all_populated and _pin_hint_ref.current:
+            _pin_hint_ref.current.visible = False
+            _pin_hint_ref.current.update()
 
     # ── Layout helpers ────────────────────────────────────────────────────────
     def _set_centered_layout():
@@ -529,9 +533,21 @@ def show_main(page: ft.Page, cfg: dict):
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.value = hint
                 _pin_hint_ref.current.visible = True
+                _pin_hint_ref.current.update()
+        elif method == "manual":
+            hint = (
+                "Clicca su un pin per assegnargli le sue proprietà"
+                if lang == "it" else
+                "Click on a pin to assign it its properties"
+            )
+            if _pin_hint_ref.current:
+                _pin_hint_ref.current.value = hint
+                _pin_hint_ref.current.visible = True
+                _pin_hint_ref.current.update()
         else:
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.visible = False
+                _pin_hint_ref.current.update()
         page.update()
 
     def _on_alphanumeric_pkg_change(e):
@@ -546,10 +562,12 @@ def show_main(page: ft.Page, cfg: dict):
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.value = hint
                 _pin_hint_ref.current.visible = True
+                _pin_hint_ref.current.update()
         else:
             _pin_method["waiting_pin1"] = False
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.visible = False
+                _pin_hint_ref.current.update()
         page.update()
 
     def _build_interactive_preview(image_path: str):
@@ -621,7 +639,7 @@ def show_main(page: ft.Page, cfg: dict):
             value="",
             size=13,
             italic=True,
-            color=ft.colors.AMBER,
+            color=ft.colors.RED,
             text_align=ft.TextAlign.CENTER,
             visible=False,
         )
@@ -729,7 +747,13 @@ def show_main(page: ft.Page, cfg: dict):
             pins[idx]["number"] = str(num)
         _pin_method["waiting_pin1"] = False
         if _pin_hint_ref.current:
-            _pin_hint_ref.current.visible = False
+            _pin_hint_ref.current.value = (
+                "Clicca su un pin per assegnargli le sue proprietà"
+                if lang == "it" else
+                "Click on a pin to assign it its properties"
+            )
+            _pin_hint_ref.current.visible = True
+            _pin_hint_ref.current.update()
         _refresh_canvas()
 
     def _auto_number_alphanumeric():
@@ -758,7 +782,13 @@ def show_main(page: ft.Page, cfg: dict):
                 pins[pin_idx]["number"] = f"{row_letter}{col_i + 1}"
         _pin_method["waiting_pin1"] = False
         if _pin_hint_ref.current:
-            _pin_hint_ref.current.visible = False
+            _pin_hint_ref.current.value = (
+                "Clicca su un pin per assegnargli le sue proprietà"
+                if lang == "it" else
+                "Click on a pin to assign it its properties"
+            )
+            _pin_hint_ref.current.visible = True
+            _pin_hint_ref.current.update()
         _refresh_canvas()
 
     # ── Image hover/tap handlers ────────────────────────────────────────────────
@@ -830,8 +860,15 @@ def show_main(page: ft.Page, cfg: dict):
                 save_btn_ref.current.opacity  = 1.0 if enabled else 0.35
                 save_btn_ref.current.update()
 
+        def _on_field_submit(e):
+            """Trigger Save when Enter is pressed and Save is enabled."""
+            if bool(number_field.value.strip()) and bool(name_field.value.strip()):
+                on_pin_save(e)
+
         number_field.on_change = _check_pin_save_enabled
         name_field.on_change   = _check_pin_save_enabled
+        number_field.on_submit = _on_field_submit
+        name_field.on_submit   = _on_field_submit
 
         def on_pin_save(_):
             new_id = number_field.value.strip()
@@ -968,10 +1005,11 @@ def show_main(page: ft.Page, cfg: dict):
         con = sqlite3.connect(db_path)
         con.execute(
             "CREATE TABLE IF NOT EXISTS symbol_data ("
-            "\"Symbol Part Number\" TEXT,"
-            "\"Package Type\" TEXT,"
             "\"Pin ID\" TEXT,"
-            "\"Pin Name\" TEXT)"
+            "\"Pin Name\" TEXT,"
+            "\"Active Low\" TEXT,"
+            "\"Package Type\" TEXT,"
+            "\"Part #\" TEXT)"
         )
         con.execute("DELETE FROM symbol_data")
         rows = []
@@ -979,17 +1017,18 @@ def show_main(page: ft.Page, cfg: dict):
             for part_num in range(1, num_parts + 1):
                 for pin in pins:
                     rows.append((
-                        str(part_num),
-                        package_type,
                         pin.get("number", ""),
                         pin.get("name", ""),
+                        "True" if pin.get("negated", False) else "False",
+                        package_type,
+                        str(part_num),
                     ))
         else:
             # Nessun pin definito: inserisce una riga per parte con i dati base
             for part_num in range(1, num_parts + 1):
-                rows.append((str(part_num), package_type, "", ""))
+                rows.append(("", "", "False", package_type, str(part_num)))
         con.executemany(
-            "INSERT INTO symbol_data VALUES (?, ?, ?, ?)", rows
+            "INSERT INTO symbol_data VALUES (?, ?, ?, ?, ?)", rows
         )
         con.commit()
         con.close()
@@ -1298,7 +1337,7 @@ def show_main(page: ft.Page, cfg: dict):
                 con = sqlite3.connect(db_path)
                 # Ordina per Pin ID: prima numericamente se possibile, poi alfabeticamente
                 cur = con.execute(
-                    "SELECT \"Symbol Part Number\", \"Package Type\", \"Pin ID\", \"Pin Name\" "
+                    "SELECT \"Pin ID\", \"Pin Name\", \"Active Low\", \"Package Type\", \"Part #\" "
                     "FROM symbol_data "
                     "ORDER BY CAST(\"Pin ID\" AS INTEGER), \"Pin ID\""
                 )
@@ -1308,13 +1347,13 @@ def show_main(page: ft.Page, cfg: dict):
                 rows = []
 
         # Estrai Package Type dal primo record (tutti uguali)
-        package_type = rows[0][1] if rows else ""
+        package_type = rows[0][3] if rows else ""
 
-        # Colonne visibili: Pin ID, Pin Name, Symbol Part Number (Package Type escluso)
-        display_columns = ["Pin ID", "Pin Name", "Symbol Part Number"]
+        # Colonne visibili: Pin ID, Pin Name, Active Low, Part # (Package Type escluso)
+        display_columns = ["Pin ID", "Pin Name", "Active Low", "Part #"]
 
         def _cell_val(row, col):
-            mapping = {"Symbol Part Number": 0, "Package Type": 1, "Pin ID": 2, "Pin Name": 3}
+            mapping = {"Pin ID": 0, "Pin Name": 1, "Active Low": 2, "Package Type": 3, "Part #": 4}
             v = row[mapping[col]]
             return str(v) if v is not None else ""
 
