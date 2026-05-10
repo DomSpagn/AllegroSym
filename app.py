@@ -951,12 +951,25 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _generate_symbol(e):
         """Called by the Generate Symbol button — saves the symbol and creates its folder."""
+        import sqlite3
         name  = sym_name_field.value.strip()
         parts_str = sym_parts_field.value.strip()
         if not name:
             return
-        sym_dir = os.path.join(os.path.dirname(__file__), "Symbols", name)
+        sym_dir = os.path.join(out_folder, "Symbols", name)
         os.makedirs(sym_dir, exist_ok=True)
+        # Crea/aggiorna il database SQLite del simbolo
+        db_path = os.path.join(sym_dir, f"{name}.db")
+        con = sqlite3.connect(db_path)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS symbol_data ("
+            "\"Symbol Part Number\" TEXT,"
+            "\"Package Type\" TEXT,"
+            "\"Pin ID\" TEXT,"
+            "\"Pin Name\" TEXT)"
+        )
+        con.commit()
+        con.close()
         entry = {
             "name":    name,
             "parts":   int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1,
@@ -1124,6 +1137,20 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_panel.visible = False
         page.update()
 
+    def _show_footprint_popup(pkg):
+        fp = pkg.get("footprint", "")
+        if fp and os.path.isfile(fp):
+            img_ctrl = ft.Image(src=fp, width=500, fit=ft.ImageFit.CONTAIN)
+        else:
+            img_ctrl = ft.Text("Nessuna immagine disponibile.", italic=True)
+        dlg = ft.AlertDialog(
+            title=ft.Text(pkg_display_name(pkg), weight=ft.FontWeight.BOLD),
+            content=ft.Container(content=img_ctrl, alignment=ft.alignment.center),
+            actions=[ft.TextButton(s.get("close", "Close"), on_click=lambda _: page.close(dlg))],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.open(dlg)
+
     def show_packages(e):
         new_sym_panel.visible    = False
         add_pkg_panel.visible    = False
@@ -1132,24 +1159,29 @@ def show_main(page: ft.Page, cfg: dict):
         sym_list_panel.visible   = False
         search_pkg_panel.visible = False
         if packages:
-            pkg_list_col.controls = [
-                ft.Column(
-                    [
-                        ft.Row(
-                            [ft.Icon(ft.icons.MEMORY, size=16),
-                             ft.Text(pkg_display_name(p), size=13,
-                                     weight=ft.FontWeight.W_500, expand=True)],
-                            spacing=8,
-                        ),
-                        ft.Text(
-                            f"{s.get('created_at_label', 'Created')}: {p.get('created_at', '')}",
-                            size=11, italic=True, color=ft.colors.GREY_500,
-                        ),
-                    ],
-                    spacing=2,
+            def _make_pkg_row(p):
+                return ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [ft.Icon(ft.icons.MEMORY, size=16),
+                                 ft.Text(pkg_display_name(p), size=13,
+                                         weight=ft.FontWeight.W_500, expand=True)],
+                                spacing=8,
+                            ),
+                            ft.Text(
+                                f"{s.get('created_at_label', 'Created')}: {p.get('created_at', '')}",
+                                size=11, italic=True, color=ft.colors.GREY_500,
+                            ),
+                        ],
+                        spacing=2,
+                    ),
+                    on_click=lambda _, pkg=p: _show_footprint_popup(pkg),
+                    ink=True,
+                    border_radius=ft.border_radius.all(6),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 )
-                for p in packages
-            ]
+            pkg_list_col.controls = [_make_pkg_row(p) for p in packages]
         else:
             pkg_list_col.controls = [
                 ft.Text(s.get("no_packages", "No packages defined yet."), italic=True),
