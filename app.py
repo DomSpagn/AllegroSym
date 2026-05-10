@@ -1125,11 +1125,12 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     def show_packages(e):
-        new_sym_panel.visible  = False
-        add_pkg_panel.visible  = False
-        del_pkg_panel.visible  = False
-        del_sym_panel.visible  = False
-        sym_list_panel.visible = False
+        new_sym_panel.visible    = False
+        add_pkg_panel.visible    = False
+        del_pkg_panel.visible    = False
+        del_sym_panel.visible    = False
+        sym_list_panel.visible   = False
+        search_pkg_panel.visible = False
         if packages:
             pkg_list_col.controls = [
                 ft.Column(
@@ -1210,7 +1211,7 @@ def show_main(page: ft.Page, cfg: dict):
         content=ft.Column(
             [
                 ft.Text(s.get("show_packages", "Show Packages"), size=16,
-                        weight=ft.FontWeight.W_600, color=ft.colors.BLUE),
+                        weight=ft.FontWeight.W_600, color=ft.colors.ORANGE),
                 ft.Divider(height=1),
                 pkg_list_col,
             ],
@@ -1226,7 +1227,7 @@ def show_main(page: ft.Page, cfg: dict):
         content=ft.Column(
             [
                 ft.Text(s.get("show_symbols", "Show Symbols"), size=16,
-                        weight=ft.FontWeight.W_600, color=ft.colors.BLUE),
+                        weight=ft.FontWeight.W_600, color=ft.colors.ORANGE),
                 ft.Divider(height=1),
                 sym_list_col,
             ],
@@ -1468,6 +1469,16 @@ def show_main(page: ft.Page, cfg: dict):
         if _pkg_actions_ref.current:
             _pkg_actions_ref.current.visible = not is_sym
             _pkg_actions_ref.current.update()
+
+        # Resetto la visibilità di tutti i pannelli (pulisco le view)
+        new_sym_panel.visible = False
+        del_sym_panel.visible = False
+        add_pkg_panel.visible = False
+        del_pkg_panel.visible = False
+        pkg_list_panel.visible = False
+        sym_list_panel.visible = False
+        search_pkg_panel.visible = False
+        page.update()
 
     def _on_symbol_mode(e):
         _switch_mode("symbol")
