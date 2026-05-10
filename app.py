@@ -390,7 +390,7 @@ def show_main(page: ft.Page, cfg: dict):
         if generate_sym_btn_ref.current is None:
             return
         all_populated = bool(_fp_state["pins"]) and all(
-            p.get("number", "").strip() and p.get("name", "").strip()
+            p.get("number", "").strip() and p.get("name", "").strip() and p.get("part_number", "").strip()
             for p in _fp_state["pins"]
         )
         generate_sym_btn_ref.current.disabled = not all_populated
@@ -847,6 +847,16 @@ def show_main(page: ft.Page, cfg: dict):
         name_field = ft.TextField(
             label=s.get("pin_name", "Pin Name"), value=pin.get("name", ""), width=220, autofocus=has_id
         )
+        # Calcola il numero di parti dal campo sym_parts_field
+        _parts_str = sym_parts_field.value.strip()
+        _num_parts = int(_parts_str) if _parts_str.isdigit() and int(_parts_str) > 0 else 1
+        _saved_part = str(pin.get("part_number", "1"))
+        part_dd = ft.Dropdown(
+            label="Part #",
+            width=220,
+            value=_saved_part if _saved_part and int(_saved_part) <= _num_parts else "1",
+            options=[ft.dropdown.Option(str(i)) for i in range(1, _num_parts + 1)],
+        )
         neg_checkbox = ft.Checkbox(
             label=s.get("pin_active_low", "Active Low"),
             value=pin.get("negated", False),
@@ -854,7 +864,9 @@ def show_main(page: ft.Page, cfg: dict):
         save_btn_ref = ft.Ref[ft.ElevatedButton]()
 
         def _check_pin_save_enabled(e=None):
-            enabled = bool(number_field.value.strip()) and bool(name_field.value.strip())
+            enabled = (bool(number_field.value.strip())
+                       and bool(name_field.value.strip())
+                       and bool(part_dd.value))
             if save_btn_ref.current:
                 save_btn_ref.current.disabled = not enabled
                 save_btn_ref.current.opacity  = 1.0 if enabled else 0.35
@@ -862,11 +874,14 @@ def show_main(page: ft.Page, cfg: dict):
 
         def _on_field_submit(e):
             """Trigger Save when Enter is pressed and Save is enabled."""
-            if bool(number_field.value.strip()) and bool(name_field.value.strip()):
+            if (bool(number_field.value.strip())
+                    and bool(name_field.value.strip())
+                    and bool(part_dd.value)):
                 on_pin_save(e)
 
         number_field.on_change = _check_pin_save_enabled
         name_field.on_change   = _check_pin_save_enabled
+        part_dd.on_change      = _check_pin_save_enabled
         number_field.on_submit = _on_field_submit
         name_field.on_submit   = _on_field_submit
 
@@ -883,17 +898,20 @@ def show_main(page: ft.Page, cfg: dict):
                 return
             number_field.error_text   = None
             number_field.border_color = None
-            _fp_state["pins"][pin_idx]["number"]  = new_id
-            _fp_state["pins"][pin_idx]["name"]    = name_field.value.strip()
-            _fp_state["pins"][pin_idx]["negated"] = neg_checkbox.value
+            _fp_state["pins"][pin_idx]["number"]      = new_id
+            _fp_state["pins"][pin_idx]["name"]        = name_field.value.strip()
+            _fp_state["pins"][pin_idx]["negated"]     = neg_checkbox.value
+            _fp_state["pins"][pin_idx]["part_number"] = part_dd.value or "1"
             page.close(dlg)
             _refresh_canvas()
 
-        _initial_enabled = bool(pin.get("number", "").strip()) and bool(pin.get("name", "").strip())
+        _initial_enabled = (bool(pin.get("number", "").strip())
+                            and bool(pin.get("name", "").strip())
+                            and bool(pin.get("part_number", "").strip()))
         dlg = ft.AlertDialog(
             title=ft.Text(f"Pin {pin_idx + 1}"),
             content=ft.Column(
-                [number_field, name_field, neg_checkbox],
+                [number_field, name_field, part_dd, neg_checkbox],
                 tight=True,
                 spacing=8,
             ),
@@ -1014,19 +1032,17 @@ def show_main(page: ft.Page, cfg: dict):
         con.execute("DELETE FROM symbol_data")
         rows = []
         if pins:
-            for part_num in range(1, num_parts + 1):
-                for pin in pins:
-                    rows.append((
-                        pin.get("number", ""),
-                        pin.get("name", ""),
-                        "True" if pin.get("negated", False) else "False",
-                        package_type,
-                        str(part_num),
-                    ))
+            for pin in pins:
+                rows.append((
+                    pin.get("number", ""),
+                    pin.get("name", ""),
+                    "True" if pin.get("negated", False) else "False",
+                    package_type,
+                    pin.get("part_number", "1"),
+                ))
         else:
-            # Nessun pin definito: inserisce una riga per parte con i dati base
-            for part_num in range(1, num_parts + 1):
-                rows.append(("", "", "False", package_type, str(part_num)))
+            # Nessun pin definito: inserisce una riga con i dati base
+            rows.append(("", "", "False", package_type, "1"))
         con.executemany(
             "INSERT INTO symbol_data VALUES (?, ?, ?, ?, ?)", rows
         )
