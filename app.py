@@ -994,6 +994,30 @@ def show_main(page: ft.Page, cfg: dict):
         con.commit()
         con.close()
 
+        # ── Struttura cartelle DEHDL symbol ──────────────────────────────────
+        dehdl_dir = os.path.join(sym_dir, "DEHDL symbol")
+
+        # chips/
+        chips_dir = os.path.join(dehdl_dir, "chips")
+        os.makedirs(chips_dir, exist_ok=True)
+        open(os.path.join(chips_dir, "chips.prt"), "a").close()
+
+        # entity/
+        os.makedirs(os.path.join(dehdl_dir, "entity"), exist_ok=True)
+
+        # part_table/
+        part_table_dir = os.path.join(dehdl_dir, "part_table")
+        os.makedirs(part_table_dir, exist_ok=True)
+        open(os.path.join(part_table_dir, "part.ptf"), "a").close()
+
+        # sym_1 … sym_N/
+        for part_num in range(1, num_parts + 1):
+            sym_part_dir = os.path.join(dehdl_dir, f"sym_{part_num}")
+            os.makedirs(sym_part_dir, exist_ok=True)
+            with open(os.path.join(sym_part_dir, "master.tag"), "w", encoding="utf-8") as f:
+                f.write("symbol.css")
+            open(os.path.join(sym_part_dir, "symbol.css"), "a").close()
+
         entry = {
             "name":    name,
             "parts":   num_parts,
