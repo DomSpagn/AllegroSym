@@ -202,6 +202,13 @@ STRINGS = {
         "fp_guide_step2": "Search and select the device for which you want to create the symbol.",
         "fp_guide_step3": "Find the footprint image on the device page.",
         "fp_guide_step4": "Save the image in PNG format where you want and with the desired name.",
+        "pin_id": "Pin ID",
+        "pin_id_duplicate": "Pin ID already used by another pin",
+        "pkg_duplicate": "Package with same name and pins already exists",
+        "no_footprint_image": "No image available.",
+        "search_package_hint": "Search package…",
+        "search_symbol_hint": "Search symbol…",
+        "positive_integer_error": "Please enter a positive non-zero integer",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -268,6 +275,13 @@ STRINGS = {
         "fp_guide_step2": "Cerca e seleziona il dispositivo di cui vuoi creare il simbolo.",
         "fp_guide_step3": "Individua l'immagine del footprint nella pagina del dispositivo.",
         "fp_guide_step4": "Salva l'immagine in formato PNG dove desideri e con il nome voluto.",
+        "pin_id": "Pin ID",
+        "pin_id_duplicate": "Pin ID già utilizzato da un altro pin",
+        "pkg_duplicate": "Package con stesso nome e pin già esistente",
+        "no_footprint_image": "Nessuna immagine disponibile.",
+        "search_package_hint": "Cerca package…",
+        "search_symbol_hint": "Cerca simbolo…",
+        "positive_integer_error": "Inserire un intero positivo non nullo",
     },
 }
 

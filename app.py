@@ -252,7 +252,7 @@ def show_main(page: ft.Page, cfg: dict):
             sym_parts_field.error_text   = None
             sym_parts_field.border_color = None
         elif not (val.isdigit() and int(val) > 0):
-            sym_parts_field.error_text   = "Inserire un intero positivo non nullo"
+            sym_parts_field.error_text   = s.get("positive_integer_error", "Please enter a positive non-zero integer")
             sym_parts_field.border_color = ft.colors.RED
         else:
             sym_parts_field.error_text   = None
@@ -281,7 +281,7 @@ def show_main(page: ft.Page, cfg: dict):
             pkg_pins_field.error_text   = None
             pkg_pins_field.border_color = None
         elif not pins_ok:
-            pkg_pins_field.error_text   = "Inserire un intero positivo non nullo"
+            pkg_pins_field.error_text   = s.get("positive_integer_error", "Please enter a positive non-zero integer")
             pkg_pins_field.border_color = ft.colors.RED
         else:
             pkg_pins_field.error_text   = None
@@ -812,7 +812,7 @@ def show_main(page: ft.Page, cfg: dict):
         pin = _fp_state["pins"][pin_idx]
         has_id = bool(pin.get("number", "").strip())
         number_field = ft.TextField(
-            label="Pin ID", value=pin.get("number", ""), width=220, autofocus=not has_id
+            label=s.get("pin_id", "Pin ID"), value=pin.get("number", ""), width=220, autofocus=not has_id
         )
         name_field = ft.TextField(
             label=s.get("pin_name", "Pin Name"), value=pin.get("name", ""), width=220, autofocus=has_id
@@ -840,7 +840,7 @@ def show_main(page: ft.Page, cfg: dict):
                 for i in range(len(_fp_state["pins"]))
             )
             if duplicate and new_id:
-                number_field.error_text   = "Pin ID già utilizzato da un altro pin"
+                number_field.error_text   = s.get("pin_id_duplicate", "Pin ID already used by another pin")
                 number_field.border_color = ft.colors.RED
                 page.update()
                 return
@@ -1081,7 +1081,7 @@ def show_main(page: ft.Page, cfg: dict):
         for i, p in enumerate(packages):
             if p["name"] == name and p["pins"] == pins:
                 if mode == "add" or (mode == "edit" and i != orig_idx):
-                    pkg_name_field.error_text   = "Package con stesso nome e pin già esistente"
+                    pkg_name_field.error_text   = s.get("pkg_duplicate", "Package with same name and pins already exists")
                     pkg_name_field.border_color = ft.colors.RED
                     page.update()
                     return
@@ -1166,7 +1166,7 @@ def show_main(page: ft.Page, cfg: dict):
         if fp and os.path.isfile(fp):
             img_ctrl = ft.Image(src=fp, width=500, fit=ft.ImageFit.CONTAIN)
         else:
-            img_ctrl = ft.Text("Nessuna immagine disponibile.", italic=True)
+            img_ctrl = ft.Text(s.get("no_footprint_image", "No image available."), italic=True)
         dlg = ft.AlertDialog(
             title=ft.Text(pkg_display_name(pkg), weight=ft.FontWeight.BOLD),
             content=ft.Container(content=img_ctrl, alignment=ft.alignment.center),
@@ -1182,7 +1182,11 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible    = False
         sym_list_panel.visible   = False
         search_pkg_panel.visible = False
-        if packages:
+
+        def _build_pkg_rows(filter_text=""):
+            ft_lower = filter_text.strip().lower()
+            filtered = [p for p in packages if ft_lower in pkg_display_name(p).lower()] if ft_lower else packages
+
             def _make_pkg_row(p):
                 return ft.Container(
                     content=ft.Column(
@@ -1205,16 +1209,56 @@ def show_main(page: ft.Page, cfg: dict):
                     border_radius=ft.border_radius.all(6),
                     padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 )
-            pkg_list_col.controls = [_make_pkg_row(p) for p in packages]
+
+            rows = [_make_pkg_row(p) for p in filtered] if filtered else [
+                ft.Text(s.get("no_packages", "No packages defined yet."), italic=True)
+            ]
+            rows.append(
+                ft.TextButton(
+                    s.get("close", "Close"),
+                    on_click=lambda _: (setattr(pkg_list_panel, "visible", False), page.update()),
+                )
+            )
+            return rows
+
+        pkg_search_field = ft.TextField(
+            hint_text=s.get("search_package_hint", "Search package…"),
+            prefix_icon=ft.icons.SEARCH,
+            width=220,
+            height=38,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            border_radius=ft.border_radius.all(8),
+            on_change=lambda ev: (
+                setattr(pkg_list_col, "controls", _build_pkg_rows(ev.control.value)),
+                page.update(),
+            ),
+        )
+
+        if packages:
+            pkg_list_col.controls = _build_pkg_rows()
         else:
             pkg_list_col.controls = [
                 ft.Text(s.get("no_packages", "No packages defined yet."), italic=True),
+                ft.TextButton(
+                    s.get("close", "Close"),
+                    on_click=lambda _: (setattr(pkg_list_panel, "visible", False), page.update()),
+                ),
             ]
-        pkg_list_col.controls.append(
-            ft.TextButton(
-                s.get("close", "Close"),
-                on_click=lambda _: (setattr(pkg_list_panel, "visible", False), page.update()),
-            )
+
+        pkg_list_panel.content = ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text(s.get("show_packages", "Show Packages"), size=16,
+                                weight=ft.FontWeight.W_600, color=ft.colors.ORANGE, expand=True),
+                        pkg_search_field,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Divider(height=1),
+                pkg_list_col,
+            ],
+            spacing=10,
         )
         pkg_list_panel.visible = True
         page.update()
@@ -1293,7 +1337,11 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_panel.visible  = False
         del_sym_panel.visible  = False
         pkg_list_panel.visible = False
-        if symbols:
+
+        def _build_sym_rows(filter_text=""):
+            ft_lower = filter_text.strip().lower()
+            filtered = [sym for sym in symbols if ft_lower in sym["name"].lower()] if ft_lower else symbols
+
             def _make_sym_row(sym):
                 return ft.Container(
                     content=ft.Column(
@@ -1317,16 +1365,56 @@ def show_main(page: ft.Page, cfg: dict):
                     border_radius=ft.border_radius.all(6),
                     padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 )
-            sym_list_col.controls = [_make_sym_row(sym) for sym in symbols]
+
+            rows = [_make_sym_row(sym) for sym in filtered] if filtered else [
+                ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True)
+            ]
+            rows.append(
+                ft.TextButton(
+                    s.get("close", "Close"),
+                    on_click=lambda _: (setattr(sym_list_panel, "visible", False), page.update()),
+                )
+            )
+            return rows
+
+        sym_search_field = ft.TextField(
+            hint_text=s.get("search_symbol_hint", "Search symbol…"),
+            prefix_icon=ft.icons.SEARCH,
+            width=220,
+            height=38,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            border_radius=ft.border_radius.all(8),
+            on_change=lambda ev: (
+                setattr(sym_list_col, "controls", _build_sym_rows(ev.control.value)),
+                page.update(),
+            ),
+        )
+
+        if symbols:
+            sym_list_col.controls = _build_sym_rows()
         else:
             sym_list_col.controls = [
                 ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True),
+                ft.TextButton(
+                    s.get("close", "Close"),
+                    on_click=lambda _: (setattr(sym_list_panel, "visible", False), page.update()),
+                ),
             ]
-        sym_list_col.controls.append(
-            ft.TextButton(
-                s.get("close", "Close"),
-                on_click=lambda _: (setattr(sym_list_panel, "visible", False), page.update()),
-            )
+
+        sym_list_panel.content = ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text(s.get("show_symbols", "Show Symbols"), size=16,
+                                weight=ft.FontWeight.W_600, color=ft.colors.ORANGE, expand=True),
+                        sym_search_field,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Divider(height=1),
+                sym_list_col,
+            ],
+            spacing=10,
         )
         sym_list_panel.visible = True
         page.update()
