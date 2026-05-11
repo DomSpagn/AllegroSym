@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import math
 import os
 import shutil
@@ -28,15 +28,19 @@ def show_main(page: ft.Page, cfg: dict):
     if out_folder:
         os.makedirs(out_folder, exist_ok=True)
 
-    _DROPDOWN_HOVER = ft.colors.with_opacity(0.18, ft.colors.BLUE)
+    def _build_theme(primary_color: str) -> ft.Theme:
+        """Build a theme with the given primary color for dropdown hover."""
+        return ft.Theme(
+            color_scheme=ft.ColorScheme(primary=primary_color),
+        )
 
     def apply_theme(theme_name: str):
         page.theme_mode = (
             ft.ThemeMode.DARK if theme_name == "dark" else ft.ThemeMode.LIGHT
         )
-        _dd_theme = ft.Theme(hover_color=_DROPDOWN_HOVER)
-        page.theme      = _dd_theme
-        page.dark_theme = _dd_theme
+        _t = _build_theme(ft.colors.BLUE)
+        page.theme      = _t
+        page.dark_theme = _t
         page.update()
 
     apply_theme(cfg.get("theme", "dark"))
@@ -44,7 +48,7 @@ def show_main(page: ft.Page, cfg: dict):
     def close_dlg(dlg):
         page.close(dlg)
 
-    # ── About dialog ─────────────────────────────────────────────────────────
+    # -- About dialog ---------------------------------------------------------
     def show_about(e):
         dlg = ft.AlertDialog(
             title=ft.Row(
@@ -68,7 +72,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.open(dlg)
 
-    # ── User Manual ──────────────────────────────────────────────────────────
+    # -- User Manual ----------------------------------------------------------
     def show_user_manual(e):
         manuals_dir = os.path.join(os.path.dirname(__file__), "User Manuals")
         files = list(Path(manuals_dir).glob("*")) if os.path.isdir(manuals_dir) else []
@@ -77,7 +81,7 @@ def show_main(page: ft.Page, cfg: dict):
         else:
             _info_dialog(s["user_manual"], s["no_manual"])
 
-    # ── Release Notes ────────────────────────────────────────────────────────
+    # -- Release Notes --------------------------------------------------------
     def show_release_notes(e):
         rn_dir = os.path.join(os.path.dirname(__file__), "Release Notes")
         files = list(Path(rn_dir).glob("*")) if os.path.isdir(rn_dir) else []
@@ -95,7 +99,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.open(dlg)
 
-    # ── Language dialog ──────────────────────────────────────────────────────
+    # -- Language dialog ------------------------------------------------------
     def show_language_dialog(e):
         dlg_s = {"strings": s}
         title_ref      = ft.Ref[ft.Text]()
@@ -151,7 +155,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.open(dlg)
 
-    # ── Output Folder dialog ─────────────────────────────────────────────────
+    # -- Output Folder dialog -------------------------------------------------
     def show_output_folder_dialog(e):
         out_text = ft.TextField(
             label=s["output_folder"],
@@ -198,7 +202,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.open(dlg)
 
-    # ── Toggle Theme ─────────────────────────────────────────────────────────
+    # -- Toggle Theme ---------------------------------------------------------
     def toggle_theme(e):
         current = cfg.get("theme", "dark")
         new_theme = "light" if current == "dark" else "dark"
@@ -206,7 +210,7 @@ def show_main(page: ft.Page, cfg: dict):
         save_config(cfg)
         apply_theme(new_theme)
 
-    # ── Package management state ──────────────────────────────────────────────
+    # -- Package management state ----------------------------------------------
     packages = load_packages()
     symbols  = load_symbols()
 
@@ -229,7 +233,7 @@ def show_main(page: ft.Page, cfg: dict):
     _pin_method = {"value": None, "waiting_pin1": False}
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
-    _pin_hover_tooltip_ref          = ft.Ref[ft.Text]()
+    _pin_hover_tooltip_ref          = ft.Ref[ft.Column]()
     _alphanumeric_pkg_container_ref = ft.Ref[ft.Container]()
     _alphanumeric_pkg_dd_ref        = ft.Ref[ft.Dropdown]()
     _alphanumeric_pkg_type          = {"value": None}
@@ -252,7 +256,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_btn_ref.current.opacity  = 1.0 if sym_ok else 0.35
         page.update()
 
-    # ── Field widgets ─────────────────────────────────────────────────────────
+    # -- Field widgets ---------------------------------------------------------
     def _check_sym_parts(e=None):
         val = sym_parts_field.value.strip()
         if val == "":
@@ -370,7 +374,7 @@ def show_main(page: ft.Page, cfg: dict):
         on_click=lambda e: pick_footprint(e),
     )
 
-    # ── Delete Package dropdown ───────────────────────────────────────────────
+    # -- Delete Package dropdown -----------------------------------------------
     def _on_del_dd_select(e):
         enabled = bool(del_pkg_dd.value)
         if del_btn_ref.current:
@@ -379,10 +383,12 @@ def show_main(page: ft.Page, cfg: dict):
             page.update()
 
     del_pkg_dd = ft.Dropdown(
-        label=s.get("package_name", "Package"), width=280, on_change=_on_del_dd_select
+        label=s.get("package_name", "Package"), width=280, on_change=_on_del_dd_select,
+        focused_border_color=ft.colors.ORANGE,
+        focused_color=ft.colors.ORANGE,
     )
 
-    # ── Canvas helpers ────────────────────────────────────────────────────────
+    # -- Canvas helpers --------------------------------------------------------
     def _build_pin_shapes():
         shapes = []
         sx = _fp_state["scale_x"]
@@ -439,7 +445,7 @@ def show_main(page: ft.Page, cfg: dict):
             _pin_hint_ref.current.visible = False
             _pin_hint_ref.current.update()
 
-    # ── Layout helpers ────────────────────────────────────────────────────────
+    # -- Layout helpers --------------------------------------------------------
     def _set_centered_layout():
         if edit_fields_container_ref.current is None:
             return
@@ -545,7 +551,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         _new_sym_content_ref.current.update()
 
-    # ── Preview builder ───────────────────────────────────────────────────────
+    # -- Preview builder -------------------------------------------------------
     def _on_pin_method_change(e):
         method = e.control.value
         _pin_method["value"] = method
@@ -696,13 +702,11 @@ def show_main(page: ft.Page, cfg: dict):
             ),
         )
 
-        hover_tooltip = ft.Text(
+        hover_tooltip = ft.Column(
             ref=_pin_hover_tooltip_ref,
-            value="",
-            size=13,
-            italic=True,
-            color=ft.colors.LIGHT_BLUE_200,
-            text_align=ft.TextAlign.CENTER,
+            controls=[],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=2,
             visible=False,
         )
 
@@ -757,7 +761,7 @@ def show_main(page: ft.Page, cfg: dict):
             footprint_preview_ref.current.visible = True
             footprint_preview_ref.current.update()
 
-    # ── Pin auto-numbering ────────────────────────────────────────────────────
+    # -- Pin auto-numbering ----------------------------------------------------
     def _auto_number_pins(pin1_idx: int, direction: str):
         pins = _fp_state["pins"]
         n = len(pins)
@@ -828,7 +832,7 @@ def show_main(page: ft.Page, cfg: dict):
             _pin_hint_ref.current.update()
         _refresh_canvas()
 
-    # ── Image hover/tap handlers ────────────────────────────────────────────────
+    # -- Image hover/tap handlers ------------------------------------------------
     def _handle_img_hover(e):
         cx, cy = e.local_x, e.local_y
         sx = _fp_state["scale_x"]
@@ -840,9 +844,27 @@ def show_main(page: ft.Page, cfg: dict):
             dw = max(w * sx, 8.0)
             dh = max(h * sy, 8.0)
             if dx - 3 <= cx <= dx + dw + 3 and dy - 3 <= cy <= dy + dh + 3:
-                name = pin.get("name", "").strip()
-                if name and _pin_hover_tooltip_ref.current:
-                    _pin_hover_tooltip_ref.current.value   = name
+                pin_id    = pin.get("number", "").strip()
+                pin_name  = pin.get("name", "").strip()
+                active_low = "True" if pin.get("negated", False) else "False"
+                part_num  = pin.get("part_number", "1")
+                has_id   = bool(pin_id)
+                has_name = bool(pin_name)
+                if (has_id or has_name) and _pin_hover_tooltip_ref.current:
+                    kvs = []
+                    if has_id:
+                        kvs.append(f"Pin ID: {pin_id}")
+                    if has_name:
+                        kvs.append(f"Pin Name: {pin_name}")
+                    if has_id and has_name:
+                        kvs.append(f"Active Low: {active_low}")
+                        kvs.append(f"Part #: {part_num}")
+                    _pin_hover_tooltip_ref.current.controls = [
+                        ft.Text(kv, size=13, italic=True,
+                                color=ft.colors.LIGHT_BLUE_200,
+                                text_align=ft.TextAlign.CENTER)
+                        for kv in kvs
+                    ]
                     _pin_hover_tooltip_ref.current.visible = True
                     _pin_hover_tooltip_ref.current.update()
                 elif _pin_hover_tooltip_ref.current and _pin_hover_tooltip_ref.current.visible:
@@ -966,7 +988,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.open(dlg)
 
-    # ── Footprint file picker ─────────────────────────────────────────────────
+    # -- Footprint file picker -------------------------------------------------
     def _on_fp_result(e: ft.FilePickerResultEvent):
         if e.files:
             pkg_images["footprint"] = e.files[0].path
@@ -985,7 +1007,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
         page.update()
 
-    # ── State reset helper ────────────────────────────────────────────────────
+    # -- State reset helper ----------------------------------------------------
     def _reset_pkg_state():
         pkg_name_field.value    = ""
         pkg_pins_field.value    = ""
@@ -996,7 +1018,7 @@ def show_main(page: ft.Page, cfg: dict):
         _pin_method["waiting_pin1"] = False
         _alphanumeric_pkg_type["value"] = None
 
-    # ── Package CRUD handlers ─────────────────────────────────────────────────
+    # -- Package CRUD handlers -------------------------------------------------
     def _update_next_btn_state():
         """Enable 'Next' only when all fields are populated."""
         parts_str = sym_parts_field.value.strip()
@@ -1064,7 +1086,7 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     def _generate_symbol(e):
-        """Called by the Generate Symbol button — saves the symbol and creates its folder."""
+        """Called by the Generate Symbol button  saves the symbol and creates its folder."""
         import sqlite3
         name      = sym_name_field.value.strip()
         parts_str = sym_parts_field.value.strip()
@@ -1118,7 +1140,7 @@ def show_main(page: ft.Page, cfg: dict):
         con.commit()
         con.close()
 
-        # ── Struttura cartelle DEHDL symbol ──────────────────────────────────
+        # -- Struttura cartelle DEHDL symbol ----------------------------------
         dehdl_dir = os.path.join(sym_dir, "DEHDL symbol")
 
         # chips/
@@ -1128,11 +1150,41 @@ def show_main(page: ft.Page, cfg: dict):
         chips_prt_path = os.path.join(chips_dir, "chips.prt")
         # Costruisce il contenuto di chips.prt
         primitive_id = f"{name}_{pkg_pin_count}PIN" if pkg_pin_count else name
+
+        # Genera la lista dei pin tra PIN e END_PIN
+        # Prepara la lista con (y, x_sort_key, pin_id, y) per ordinamento
+        pin_entries = []
+        for pin in pins:
+            pin_id = pin.get("number", "").strip()
+            try:
+                y = int(pin.get("part_number", "1"))
+            except (ValueError, TypeError):
+                y = 1
+            # Chiave di ordinamento per x: numerica se possibile, altrimenti stringa
+            try:
+                x_key = (0, int(pin_id))
+            except (ValueError, TypeError):
+                x_key = (1, pin_id)
+            pin_entries.append((y, x_key, pin_id, y))
+
+        pin_entries.sort(key=lambda e: (e[0], e[1]))
+
+        pin_lines = []
+        for y, x_key, pin_id, part_y in pin_entries:
+            vec = ["0"] * num_parts
+            if 1 <= part_y <= num_parts:
+                vec[part_y - 1] = pin_id if pin_id else "0"
+            vec_str = ",".join(vec)
+            pin_lines.append(f"  'N{pin_id}-{part_y}':")
+            pin_lines.append(f"   PIN_NUMBER='({vec_str})';")
+
+        pin_block = "\n".join(pin_lines) + "\n" if pin_lines else ""
+
         chips_prt_content = (
             "FILE_TYPE=LIBRARY_PARTS ;\n"
             f"PRIMITIVE '{name}','{primitive_id}';\n"
             " PIN\n"
-            "\n"
+            f"{pin_block}"
             " END_PIN;\n"
             " BODY\n"
             "  C_PATH='/LOGIC.1.1.1P';\n"
@@ -1155,7 +1207,7 @@ def show_main(page: ft.Page, cfg: dict):
 
 
 
-        # sym_1 … sym_N/
+        # sym_1  sym_N/
         for part_num in range(1, num_parts + 1):
             sym_part_dir = os.path.join(dehdl_dir, f"sym_{part_num}")
             os.makedirs(sym_part_dir, exist_ok=True)
@@ -1282,7 +1334,7 @@ def show_main(page: ft.Page, cfg: dict):
         add_pkg_panel.visible = False
         page.update()
 
-    # ── Search Package (footprint guide) ────────────────────────────────────
+    # -- Search Package (footprint guide) ------------------------------------
     def show_search_package(e):
         new_sym_panel.visible  = False
         add_pkg_panel.visible  = False
@@ -1391,7 +1443,7 @@ def show_main(page: ft.Page, cfg: dict):
             return rows
 
         pkg_search_field = ft.TextField(
-            hint_text=s.get("search_package_hint", "Search package…"),
+            hint_text=s.get("search_package_hint", "Search package"),
             prefix_icon=ft.icons.SEARCH,
             width=220,
             height=38,
@@ -1475,7 +1527,7 @@ def show_main(page: ft.Page, cfg: dict):
         ] if rows else [
             ft.DataRow(cells=[
                 ft.DataCell(ft.Container(
-                    content=ft.Text("—"),
+                    content=ft.Text(""),
                     alignment=ft.alignment.center,
                     expand=True,
                 )) for _ in display_columns
@@ -1534,7 +1586,7 @@ def show_main(page: ft.Page, cfg: dict):
                                 spacing=8,
                             ),
                             ft.Text(
-                                f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  │  "
+                                f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  ¦  "
                                 f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
                                 size=11, italic=True, color=ft.colors.GREY_500,
                             ),
@@ -1559,7 +1611,7 @@ def show_main(page: ft.Page, cfg: dict):
             return rows
 
         sym_search_field = ft.TextField(
-            hint_text=s.get("search_symbol_hint", "Search symbol…"),
+            hint_text=s.get("search_symbol_hint", "Search symbol"),
             prefix_icon=ft.icons.SEARCH,
             width=220,
             height=38,
@@ -1600,7 +1652,7 @@ def show_main(page: ft.Page, cfg: dict):
         sym_list_panel.visible = True
         page.update()
 
-    # ── Panels ────────────────────────────────────────────────────────────────
+    # -- Panels ----------------------------------------------------------------
     pkg_list_col = ft.Column([], spacing=6)
 
     pkg_list_panel = ft.Container(
@@ -1633,7 +1685,8 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
-    pkg_dropdown.on_change = _on_pkg_type_change
+    pkg_dropdown.on_change     = _on_pkg_type_change
+    ref_des_dropdown.on_change = _on_ref_des_change
 
     # \u2500\u2500 Delete Symbol dropdown + confirm button ref \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     del_sym_confirm_btn_ref = ft.Ref[ft.ElevatedButton]()
@@ -1721,7 +1774,7 @@ def show_main(page: ft.Page, cfg: dict):
         padding=ft.padding.symmetric(horizontal=12, vertical=12),
         content=ft.Column(
             [
-                # Frame 1 — title
+                # Frame 1  title
                 ft.Text(
                     ref=_new_sym_title_ref,
                     value=s.get("new_symbol", "New Symbol"),
@@ -1730,7 +1783,7 @@ def show_main(page: ft.Page, cfg: dict):
                     color=ft.colors.ORANGE,
                     text_align=ft.TextAlign.CENTER,
                 ),
-                # Frame 2 — main content (centered fields or two-col with preview)
+                # Frame 2  main content (centered fields or two-col with preview)
                 ft.Container(
                     ref=_new_sym_content_ref,
                     expand=True,
@@ -1745,7 +1798,7 @@ def show_main(page: ft.Page, cfg: dict):
                         ),
                     ),
                 ),
-                # Frame 2.5 — Next button (always visible, enabled only when all fields ok)
+                # Frame 2.5  Next button (always visible, enabled only when all fields ok)
                 ft.Container(
                     ref=_next_sym_bar_ref,
                     visible=True,
@@ -1759,7 +1812,7 @@ def show_main(page: ft.Page, cfg: dict):
                         opacity=0.35,
                     ),
                 ),
-                # Frame 3 — bottom action bar
+                # Frame 3  bottom action bar
                 ft.Container(
                     ref=_new_sym_bottom_bar_ref,
                     visible=False,
@@ -1857,7 +1910,7 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
-    # ── Mode selector state ───────────────────────────────────────────────────
+    # -- Mode selector state ---------------------------------------------------
     _mode            = {"current": "symbol"}
     _sym_mode_btn_ref = ft.Ref[ft.ElevatedButton]()
     _pkg_mode_btn_ref = ft.Ref[ft.ElevatedButton]()
@@ -1867,6 +1920,10 @@ def show_main(page: ft.Page, cfg: dict):
     def _switch_mode(mode: str):
         _mode["current"] = mode
         is_sym = mode == "symbol"
+        # Aggiorna il colore hover dei dropdown in base alla sezione
+        _t = _build_theme(ft.colors.BLUE if is_sym else ft.colors.ORANGE)
+        page.theme      = _t
+        page.dark_theme = _t
         if _sym_mode_btn_ref.current:
             _sym_mode_btn_ref.current.bgcolor = ft.colors.BLUE if is_sym else ft.colors.GREY_700
             _sym_mode_btn_ref.current.color   = ft.colors.WHITE
@@ -1898,11 +1955,11 @@ def show_main(page: ft.Page, cfg: dict):
     def _on_package_mode(e):
         _switch_mode("package")
 
-    # ── Command bar ───────────────────────────────────────────────────────────
+    # -- Command bar -----------------------------------------------------------
     top_bar = ft.Container(
         content=ft.Row(
             [
-                # ── Left: mode selector buttons ──────────────────────────────
+                # -- Left: mode selector buttons ------------------------------
                 ft.Row(
                     [
                         ft.ElevatedButton(
@@ -1930,7 +1987,7 @@ def show_main(page: ft.Page, cfg: dict):
                     height=40,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                # ── Center: action buttons ────────────────────────────────────
+                # -- Center: action buttons ------------------------------------
                 ft.Row(
                     [
                         ft.Row(
@@ -2005,7 +2062,7 @@ def show_main(page: ft.Page, cfg: dict):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     height=40,
                 ),
-                # ── Right: settings/help ──────────────────────────────────────
+                # -- Right: settings/help --------------------------------------
                 ft.Row(
                     [
                         ft.PopupMenuButton(
