@@ -34,11 +34,11 @@ def show_main(page: ft.Page, cfg: dict):
             color_scheme=ft.ColorScheme(primary=primary_color),
         )
 
-    def apply_theme(theme_name: str):
+    def apply_theme(theme_name: str, primary_color: str = ft.colors.BLUE):
         page.theme_mode = (
             ft.ThemeMode.DARK if theme_name == "dark" else ft.ThemeMode.LIGHT
         )
-        _t = _build_theme(ft.colors.BLUE)
+        _t = _build_theme(primary_color)
         page.theme      = _t
         page.dark_theme = _t
         page.update()
@@ -208,7 +208,20 @@ def show_main(page: ft.Page, cfg: dict):
         new_theme = "light" if current == "dark" else "dark"
         cfg["theme"] = new_theme
         save_config(cfg)
-        apply_theme(new_theme)
+        primary = ft.colors.ORANGE if _mode.get("current") == "package" else ft.colors.BLUE
+        apply_theme(new_theme, primary_color=primary)
+        # Refresh static preview if a footprint is loaded but not yet saved
+        fp = pkg_images.get("footprint", "")
+        if fp and add_pkg_panel.visible:
+            themed = _theme_fp_path(fp)
+            if themed and os.path.isfile(themed):
+                _build_static_preview(themed)
+        # Refresh interactive preview in New Symbol if active
+        sym_fp = _sym_pkg_ref.get("footprint", "")
+        if sym_fp and new_sym_panel.visible:
+            themed = _theme_fp_path(sym_fp)
+            if themed and os.path.isfile(themed):
+                _build_interactive_preview(themed)
 
     # -- Package management state ----------------------------------------------
     packages = load_packages()
@@ -231,6 +244,7 @@ def show_main(page: ft.Page, cfg: dict):
     _orig_pkg_values = {"name": "", "pins": "", "footprint": ""}  # unused, kept for safety
     _fp_state = {"pins": [], "scale_x": 1.0, "scale_y": 1.0}
     _pin_method = {"value": None, "waiting_pin1": False}
+    _sym_pkg_ref = {"footprint": ""}  # footprint path active in New Symbol interactive preview
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
     _pin_hover_tooltip_ref          = ft.Ref[ft.Container]()
@@ -344,7 +358,7 @@ def show_main(page: ft.Page, cfg: dict):
         label=s.get("package_pins", "Number of Pins"), width=280, on_change=_check_save_enabled
     )
     fp_path_text = ft.Text(value="", size=11, italic=True)
-    pkg_images   = {"footprint": ""}
+    pkg_images   = {"footprint": "", "footprint_is_temp": False}
 
     _save_cancel_row = ft.Row(
         [
@@ -851,17 +865,17 @@ def show_main(page: ft.Page, cfg: dict):
                 pin_name  = pin.get("name", "").strip()
                 active_low = "True" if pin.get("negated", False) else "False"
                 part_num  = pin.get("part_number", "1")
-                has_id   = bool(pin_id)
-                has_name = bool(pin_name)
-                if (has_id or has_name) and _pin_hover_tooltip_ref.current:
-                    kvs = []
-                    if has_id:
-                        kvs.append(f"Pin ID: {pin_id}")
-                    if has_name:
-                        kvs.append(f"Pin Name: {pin_name}")
-                    if has_id and has_name:
-                        kvs.append(f"Active Low: {active_low}")
-                        kvs.append(f"Part #: {part_num}")
+                has_id      = bool(pin_id)
+                has_name    = bool(pin_name)
+                has_part    = bool(str(part_num).strip())
+                all_filled  = has_id and has_name and has_part
+                if all_filled and _pin_hover_tooltip_ref.current:
+                    kvs = [
+                        f"Pin ID: {pin_id}",
+                        f"Pin Name: {pin_name}",
+                        f"Active Low: {active_low}",
+                        f"Part #: {part_num}",
+                    ]
                     tip = _pin_hover_tooltip_ref.current
                     tip.content.controls = [
                         ft.Text(kv, size=12, italic=True,
@@ -998,11 +1012,50 @@ def show_main(page: ft.Page, cfg: dict):
     # -- Footprint file picker -------------------------------------------------
     def _on_fp_result(e: ft.FilePickerResultEvent):
         if e.files:
-            pkg_images["footprint"] = e.files[0].path
-            fp_path_text.value = os.path.basename(e.files[0].path)
+            src = e.files[0].path
+            dark_path, _light_path = _make_themed_images(src)
+            pkg_images["footprint"] = dark_path
+            pkg_images["footprint_is_temp"] = True
+            fp_path_text.value = os.path.basename(dark_path)
             _fp_state["pins"] = []
-            _build_static_preview(e.files[0].path)
+            _build_static_preview(_theme_fp_path(dark_path))
             _check_save_enabled()
+
+    def _make_themed_images(src_path: str):
+        """Copy src to PACKAGES_IMAGES_DIR/stem_d.png; generate stem_l.png with inverted colors.
+        Returns (dark_path, light_path).
+        """
+        from PIL import Image as _PILImg
+        import numpy as np
+        base_name = os.path.splitext(os.path.basename(src_path))[0]
+        # Strip existing _d/_l suffix if re-loading
+        for sfx in ("_d", "_l"):
+            if base_name.endswith(sfx):
+                base_name = base_name[:-len(sfx)]
+                break
+        dark_path  = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, base_name + "_d.png")
+        light_path = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, base_name + "_l.png")
+        img = _PILImg.open(src_path).convert("RGBA")
+        # Dark copy
+        img.save(dark_path)
+        # Light copy: invert RGB, keep alpha
+        arr = np.array(img, dtype=np.uint8)
+        arr[..., :3] = 255 - arr[..., :3]
+        _PILImg.fromarray(arr).save(light_path)
+        return dark_path, light_path
+
+    def _theme_fp_path(fp: str) -> str:
+        """Return _d or _l variant of a footprint path based on current theme."""
+        if not fp:
+            return fp
+        stem, ext = os.path.splitext(fp)
+        if stem.endswith("_d") or stem.endswith("_l"):
+            base = stem[:-2]
+            suffix = "_l" if page.theme_mode == ft.ThemeMode.LIGHT else "_d"
+            candidate = base + suffix + ext
+            if os.path.isfile(candidate):
+                return candidate
+        return fp
 
     fp_picker = ft.FilePicker(on_result=_on_fp_result)
     page.overlay.append(fp_picker)
@@ -1016,10 +1069,18 @@ def show_main(page: ft.Page, cfg: dict):
 
     # -- State reset helper ----------------------------------------------------
     def _reset_pkg_state():
+        # Remove temp _d/_l images if footprint was loaded but never saved
+        _fp = pkg_images.get("footprint", "")
+        if _fp and pkg_images.get("footprint_is_temp") and os.path.isfile(_fp) and _fp.endswith("_d.png"):
+            os.remove(_fp)
+            _lp = _fp[:-6] + "_l.png"
+            if os.path.isfile(_lp):
+                os.remove(_lp)
         pkg_name_field.value    = ""
         pkg_pins_field.value    = ""
         fp_path_text.value      = ""
         pkg_images["footprint"] = ""
+        pkg_images["footprint_is_temp"] = False
         _fp_state["pins"]       = []
         _pin_method["value"]    = None
         _pin_method["waiting_pin1"] = False
@@ -1053,8 +1114,9 @@ def show_main(page: ft.Page, cfg: dict):
                 {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
                 for p in pkg.get("pins_data", [])
             ]
+            _sym_pkg_ref["footprint"] = pkg["footprint"]
             _set_new_sym_two_col_layout()
-            _build_interactive_preview(pkg["footprint"])
+            _build_interactive_preview(_theme_fp_path(pkg["footprint"]))
         if _new_sym_bottom_bar_ref.current:
             _new_sym_bottom_bar_ref.current.visible = True
         page.update()
@@ -1073,6 +1135,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible   = False
         sym_list_panel.visible  = False
         pkg_list_panel.visible  = False
+        search_pkg_panel.visible = False
         sym_name_field.value    = ""
         sym_parts_field.value   = ""
         sym_parts_field.error_text   = None
@@ -1255,6 +1318,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_panel.visible  = False
         sym_list_panel.visible = False
         pkg_list_panel.visible = False
+        search_pkg_panel.visible = False
         if del_sym_confirm_btn_ref.current:
             del_sym_confirm_btn_ref.current.disabled = True
             del_sym_confirm_btn_ref.current.opacity  = 0.35
@@ -1289,6 +1353,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_panel.visible      = False
         sym_list_panel.visible     = False
         pkg_list_panel.visible     = False
+        search_pkg_panel.visible   = False
         _reset_pkg_state()
         _set_centered_layout()
         if _bottom_bar_ref.current:
@@ -1324,10 +1389,17 @@ def show_main(page: ft.Page, cfg: dict):
         if mode == "add":
             fp_dest = ""
             if pkg_images["footprint"]:
-                ext     = os.path.splitext(pkg_images["footprint"])[1]
-                fp_dest = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}{ext}")
-                shutil.copy2(pkg_images["footprint"], fp_dest)
+                d_src   = pkg_images["footprint"]
+                fp_dest = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}_d.png")
+                if d_src != fp_dest:
+                    shutil.move(d_src, fp_dest)
+                d_stem = os.path.splitext(d_src)[0]
+                l_src  = d_stem[:-2] + "_l.png"
+                fp_dest_l = os.path.join(_cfg_mod.PACKAGES_IMAGES_DIR, f"{name}{pins}_l.png")
+                if os.path.isfile(l_src) and l_src != fp_dest_l:
+                    shutil.move(l_src, fp_dest_l)
             packages.append({"name": name, "pins": pins, "footprint": fp_dest, "pins_data": pins_data})
+            pkg_images["footprint_is_temp"] = False
         save_packages(packages)
         packages[:] = load_packages()
         add_pkg_panel.visible = False
@@ -1382,6 +1454,11 @@ def show_main(page: ft.Page, cfg: dict):
         packages[:] = load_packages()
         if fp_path and os.path.isfile(fp_path):
             os.remove(fp_path)
+            stem, ext = os.path.splitext(fp_path)
+            if stem.endswith("_d"):
+                l_path = stem[:-2] + "_l" + ext
+                if os.path.isfile(l_path):
+                    os.remove(l_path)
         del_pkg_panel.visible = False
         update_symbol_buttons()
 
@@ -1390,7 +1467,7 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     def _show_footprint_popup(pkg):
-        fp = pkg.get("footprint", "")
+        fp = _theme_fp_path(pkg.get("footprint", ""))
         if fp and os.path.isfile(fp):
             img_ctrl = ft.Image(src=fp, width=500, fit=ft.ImageFit.CONTAIN)
         else:
@@ -1577,6 +1654,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_panel.visible  = False
         del_sym_panel.visible  = False
         pkg_list_panel.visible = False
+        search_pkg_panel.visible = False
 
         def _build_sym_rows(filter_text=""):
             ft_lower = filter_text.strip().lower()
