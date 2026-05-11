@@ -209,9 +209,6 @@ STRINGS = {
         "search_package_hint": "Search package…",
         "search_symbol_hint": "Search symbol…",
         "positive_integer_error": "Please enter a positive non-zero integer",
-        "reference_designator": "Reference Designator",
-        "next": "Next",
-        "symbol_mode": "Symbol",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -285,9 +282,6 @@ STRINGS = {
         "search_package_hint": "Cerca package…",
         "search_symbol_hint": "Cerca simbolo…",
         "positive_integer_error": "Inserire un intero positivo non nullo",
-        "reference_designator": "Designatore di Riferimento",
-        "next": "Avanti",
-        "symbol_mode": "Simbolo",
     },
 }
 
