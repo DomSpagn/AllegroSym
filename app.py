@@ -28,10 +28,15 @@ def show_main(page: ft.Page, cfg: dict):
     if out_folder:
         os.makedirs(out_folder, exist_ok=True)
 
+    _DROPDOWN_HOVER = ft.colors.with_opacity(0.18, ft.colors.BLUE)
+
     def apply_theme(theme_name: str):
         page.theme_mode = (
             ft.ThemeMode.DARK if theme_name == "dark" else ft.ThemeMode.LIGHT
         )
+        _dd_theme = ft.Theme(hover_color=_DROPDOWN_HOVER)
+        page.theme      = _dd_theme
+        page.dark_theme = _dd_theme
         page.update()
 
     apply_theme(cfg.get("theme", "dark"))
@@ -233,6 +238,8 @@ def show_main(page: ft.Page, cfg: dict):
     new_sym_right_col_ref           = ft.Ref[ft.Container]()
     _new_sym_content_ref            = ft.Ref[ft.Container]()
     _new_sym_bottom_bar_ref         = ft.Ref[ft.Container]()
+    _next_sym_bar_ref               = ft.Ref[ft.Container]()
+    _next_sym_btn_ref               = ft.Ref[ft.TextButton]()
     _new_sym_title_ref              = ft.Ref[ft.Text]()
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
     def update_symbol_buttons():
@@ -260,15 +267,45 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     sym_name_field = ft.TextField(
-        label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True
+        label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True,
+        on_change=lambda e: _update_next_btn_state(),
     )
     sym_parts_field = ft.TextField(
-        label=s.get("symbol_parts", "Number of Symbol Parts"), width=320, on_change=_check_sym_parts
+        label=s.get("symbol_parts", "Number of Symbol Parts"), width=320,
+        on_change=lambda e: (_check_sym_parts(e), _update_next_btn_state()),
     )
     pkg_dropdown = ft.Dropdown(
         label=s.get("package_type", "Package Type"),
         width=320,
         options=[ft.dropdown.Option(pkg_display_name(p)) for p in packages],
+    )
+    ref_des_dropdown = ft.Dropdown(
+        label="Reference Designator",
+        width=320,
+        options=[
+            ft.dropdown.Option("B",   "B - fan"),
+            ft.dropdown.Option("BT",  "BT - battery"),
+            ft.dropdown.Option("C",   "C - capacitor"),
+            ft.dropdown.Option("D",   "D - diode, Schottky, Zener, TVS, bridge, miscellaneous"),
+            ft.dropdown.Option("DS",  "DS - lamp, LED"),
+            ft.dropdown.Option("E",   "E - antenna, arrester"),
+            ft.dropdown.Option("F",   "F - fuse, fuse holder"),
+            ft.dropdown.Option("J",   "J - connector"),
+            ft.dropdown.Option("K",   "K - relay, mosfet relay"),
+            ft.dropdown.Option("L",   "L - inductor"),
+            ft.dropdown.Option("LED", "LED - display"),
+            ft.dropdown.Option("LS",  "LS - buzzer"),
+            ft.dropdown.Option("Q",   "Q - BJT, MOSFET, JFET, IGBT, diac, triac, module"),
+            ft.dropdown.Option("R",   "R - fixed resistor, variable resistor"),
+            ft.dropdown.Option("RT",  "RT - NTC, PTC"),
+            ft.dropdown.Option("RV",  "RV - VDR"),
+            ft.dropdown.Option("S",   "S - pushbutton, switch, thermal"),
+            ft.dropdown.Option("T",   "T - transformer driver, transformer power, transformer sense"),
+            ft.dropdown.Option("U",   "U - analog IC, logic IC, memory, optocoupler IC, transducer, MCU, DSP, MPU, FPGA"),
+            ft.dropdown.Option("W",   "W - wire"),
+            ft.dropdown.Option("X",   "X - battery holder, fuse clip"),
+            ft.dropdown.Option("Y",   "Y - quartz, resonator"),
+        ],
     )
 
     def _check_save_enabled(e=None):
@@ -467,7 +504,7 @@ def show_main(page: ft.Page, cfg: dict):
             expand=True,
             alignment=ft.alignment.center,
             content=ft.Column(
-                [sym_name_field, sym_parts_field, pkg_dropdown],
+                [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown],
                 spacing=12,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
@@ -485,7 +522,7 @@ def show_main(page: ft.Page, cfg: dict):
                     padding=ft.padding.only(right=12),
                     alignment=ft.alignment.center,
                     content=ft.Column(
-                        [sym_name_field, sym_parts_field, pkg_dropdown],
+                        [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown],
                         spacing=12,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
@@ -960,16 +997,28 @@ def show_main(page: ft.Page, cfg: dict):
         _alphanumeric_pkg_type["value"] = None
 
     # ── Package CRUD handlers ─────────────────────────────────────────────────
-    def _on_pkg_type_change(e):
-        """Called when the user selects a package in the New Symbol dropdown."""
-        dname = e.control.value
+    def _update_next_btn_state():
+        """Enable 'Next' only when all fields are populated."""
+        parts_str = sym_parts_field.value.strip()
+        all_ok = (
+            bool(sym_name_field.value.strip()) and
+            (parts_str.isdigit() and int(parts_str) > 0) and
+            bool(pkg_dropdown.value) and
+            bool(ref_des_dropdown.value)
+        )
+        if _next_sym_btn_ref.current:
+            _next_sym_btn_ref.current.disabled = not all_ok
+            _next_sym_btn_ref.current.opacity  = 1.0 if all_ok else 0.35
+        page.update()
+
+    def _on_next_click(e):
+        """Transition to interactive preview after all fields are confirmed."""
+        dname = pkg_dropdown.value
         if not dname:
-            _set_new_sym_centered_layout()
-            if _new_sym_bottom_bar_ref.current:
-                _new_sym_bottom_bar_ref.current.visible = False
-            page.update()
             return
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
+        if _next_sym_bar_ref.current:
+            _next_sym_bar_ref.current.visible = False
         if pkg and pkg.get("footprint") and os.path.isfile(pkg["footprint"]):
             _fp_state["pins"] = [
                 {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
@@ -977,13 +1026,17 @@ def show_main(page: ft.Page, cfg: dict):
             ]
             _set_new_sym_two_col_layout()
             _build_interactive_preview(pkg["footprint"])
-            if _new_sym_bottom_bar_ref.current:
-                _new_sym_bottom_bar_ref.current.visible = True
-        else:
-            _set_new_sym_centered_layout()
-            if _new_sym_bottom_bar_ref.current:
-                _new_sym_bottom_bar_ref.current.visible = False
+        if _new_sym_bottom_bar_ref.current:
+            _new_sym_bottom_bar_ref.current.visible = True
         page.update()
+
+    def _on_pkg_type_change(e):
+        """Called when the user selects a package in the New Symbol dropdown."""
+        _update_next_btn_state()
+
+    def _on_ref_des_change(e):
+        """Called when the user selects a reference designator."""
+        _update_next_btn_state()
 
     def new_symbol(e):
         add_pkg_panel.visible   = False
@@ -997,8 +1050,14 @@ def show_main(page: ft.Page, cfg: dict):
         sym_parts_field.border_color = None
         pkg_dropdown.value      = None
         pkg_dropdown.options    = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
+        ref_des_dropdown.value  = None
         _reset_pkg_state()
         _set_new_sym_centered_layout()
+        if _next_sym_btn_ref.current:
+            _next_sym_btn_ref.current.disabled = True
+            _next_sym_btn_ref.current.opacity  = 0.35
+        if _next_sym_bar_ref.current:
+            _next_sym_bar_ref.current.visible = True
         if _new_sym_bottom_bar_ref.current:
             _new_sym_bottom_bar_ref.current.visible = False
         new_sym_panel.visible   = True
@@ -1011,9 +1070,19 @@ def show_main(page: ft.Page, cfg: dict):
         parts_str = sym_parts_field.value.strip()
         if not name:
             return
-        num_parts   = int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1
+        num_parts    = int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1
         package_type = pkg_dropdown.value or ""
-        pins        = _fp_state.get("pins", [])
+        ref_des      = ref_des_dropdown.value or ""
+        pins         = _fp_state.get("pins", [])
+
+        # Ricava il numero di pin dal package selezionato
+        pkg_pin_count = 0
+        if package_type:
+            matched_pkg = next(
+                (p for p in packages if pkg_display_name(p) == package_type), None
+            )
+            if matched_pkg:
+                pkg_pin_count = matched_pkg.get("pins", 0)
 
         sym_dir = os.path.join(out_folder, "Symbols", name)
         os.makedirs(sym_dir, exist_ok=True)
@@ -1057,7 +1126,26 @@ def show_main(page: ft.Page, cfg: dict):
         os.makedirs(chips_dir, exist_ok=True)
 
         chips_prt_path = os.path.join(chips_dir, "chips.prt")
-        open(chips_prt_path, "a").close()
+        # Costruisce il contenuto di chips.prt
+        primitive_id = f"{name}_{pkg_pin_count}PIN" if pkg_pin_count else name
+        chips_prt_content = (
+            "FILE_TYPE=LIBRARY_PARTS ;\n"
+            f"PRIMITIVE '{name}','{primitive_id}';\n"
+            " PIN\n"
+            "\n"
+            " END_PIN;\n"
+            " BODY\n"
+            "  C_PATH='/LOGIC.1.1.1P';\n"
+            "  C_VIEW='CHIPS_PRT.1';  \n"
+            f"  PHYS_DES_PREFIX='{ref_des}';\n"
+            "  SIZE='1';  \n"
+            f"  PART_NAME='{name}';\n"
+            " END_BODY;\n"
+            "END_PRIMITIVE;\n"
+            "END.\n"
+        )
+        with open(chips_prt_path, "w", encoding="utf-8") as f:
+            f.write(chips_prt_content)
         # Crea master.tag con il contenuto 'chips.prt' nella stessa directory
         with open(os.path.join(chips_dir, "master.tag"), "w", encoding="utf-8") as f:
             f.write("chips.prt")
@@ -1650,11 +1738,25 @@ def show_main(page: ft.Page, cfg: dict):
                         expand=True,
                         alignment=ft.alignment.center,
                         content=ft.Column(
-                            [sym_name_field, sym_parts_field, pkg_dropdown],
+                            [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown],
                             spacing=12,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             tight=True,
                         ),
+                    ),
+                ),
+                # Frame 2.5 — Next button (always visible, enabled only when all fields ok)
+                ft.Container(
+                    ref=_next_sym_bar_ref,
+                    visible=True,
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.symmetric(vertical=10),
+                    content=ft.TextButton(
+                        "Next",
+                        ref=_next_sym_btn_ref,
+                        on_click=_on_next_click,
+                        disabled=True,
+                        opacity=0.35,
                     ),
                 ),
                 # Frame 3 — bottom action bar
