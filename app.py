@@ -863,27 +863,28 @@ def show_main(page: ft.Page, cfg: dict):
             if dx - 3 <= cx <= dx + dw + 3 and dy - 3 <= cy <= dy + dh + 3:
                 pin_id    = pin.get("number", "").strip()
                 pin_name  = pin.get("name", "").strip()
-                active_low = "True" if pin.get("negated", False) else "False"
+                negated   = pin.get("negated", False)
+                active_low_val = s.get("true_val", "True") if negated else s.get("false_val", "False")
+                active_low_color = ft.colors.LIGHT_BLUE_400 if negated else ft.colors.ORANGE
                 part_num  = pin.get("part_number", "1")
                 has_id      = bool(pin_id)
                 has_name    = bool(pin_name)
                 has_part    = bool(str(part_num).strip())
                 all_filled  = has_id and has_name and has_part
                 if all_filled and _pin_hover_tooltip_ref.current:
-                    kvs = [
-                        f"Pin ID: {pin_id}",
-                        f"Pin Name: {pin_name}",
-                        f"Active Low: {active_low}",
-                        f"Part #: {part_num}",
-                    ]
+                    lbl_pin_name   = s.get("pin_name_col", "Pin Name")
+                    lbl_active_low = s.get("active_low_col", "Active Low")
                     tip = _pin_hover_tooltip_ref.current
                     tip.content.controls = [
-                        ft.Text(kv, size=12, italic=True,
-                                weight=ft.FontWeight.BOLD,
-                                color=ft.colors.BLACK)
-                        for kv in kvs
+                        ft.Text(f"Pin ID: {pin_id}", size=12, italic=True, weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
+                        ft.Text(f"{lbl_pin_name}: {pin_name}", size=12, italic=True, weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
+                        ft.Row([
+                            ft.Text(f"{lbl_active_low}: ", size=12, italic=True, weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
+                            ft.Text(active_low_val, size=12, italic=True, weight=ft.FontWeight.BOLD, color=active_low_color),
+                        ], spacing=0, tight=True),
+                        ft.Text(f"Part #: {part_num}", size=12, italic=True, weight=ft.FontWeight.BOLD, color=ft.colors.BLACK),
                     ]
-                    estimated_h = len(kvs) * 20 + 12
+                    estimated_h = 4 * 20 + 12
                     tip.left = dx
                     tip.top  = max(0, dy - estimated_h - 4)
                     tip.visible = True
@@ -1592,21 +1593,28 @@ def show_main(page: ft.Page, cfg: dict):
         package_type = rows[0][3] if rows else ""
 
         # Colonne visibili: Pin ID, Pin Name, Active Low, Part # (Package Type escluso)
-        display_columns = ["Pin ID", "Pin Name", "Active Low", "Part #"]
+        col_pin_name   = s.get("pin_name_col", "Pin Name")
+        col_active_low = s.get("active_low_col", "Active Low")
+        display_columns = ["Pin ID", col_pin_name, col_active_low, "Part #"]
 
         def _cell_val(row, col):
-            mapping = {"Pin ID": 0, "Pin Name": 1, "Active Low": 2, "Package Type": 3, "Part #": 4}
+            mapping = {"Pin ID": 0, col_pin_name: 1, col_active_low: 2, "Package Type": 3, "Part #": 4}
             v = row[mapping[col]]
             return str(v) if v is not None else ""
 
+        def _make_cell(row, col):
+            val = _cell_val(row, col)
+            if col == col_active_low:
+                is_true = val.strip().lower() in ("true", "1", "yes")
+                display = s.get("true_val", "True") if is_true else s.get("false_val", "False")
+                color   = ft.colors.LIGHT_BLUE_400 if is_true else ft.colors.ORANGE
+                content = ft.Text(display, color=color, weight=ft.FontWeight.BOLD)
+            else:
+                content = ft.Text(val)
+            return ft.DataCell(ft.Container(content=content, alignment=ft.alignment.center, expand=True))
+
         data_rows = [
-            ft.DataRow(cells=[
-                ft.DataCell(ft.Container(
-                    content=ft.Text(_cell_val(row, c)),
-                    alignment=ft.alignment.center,
-                    expand=True,
-                )) for c in display_columns
-            ])
+            ft.DataRow(cells=[_make_cell(row, c) for c in display_columns])
             for row in rows
         ] if rows else [
             ft.DataRow(cells=[

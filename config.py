@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 from datetime import date, datetime
 
-APP_VERSION = "v0.2"
+APP_VERSION = "v0.3"
 BUILD_DATE = date.today().strftime("%d-%m-%Y")
 AUTHOR = " Domenico Spagnuolo"
 
@@ -209,6 +209,13 @@ STRINGS = {
         "search_package_hint": "Search package…",
         "search_symbol_hint": "Search symbol…",
         "positive_integer_error": "Please enter a positive non-zero integer",
+        "symbol_mode": "Symbol",
+        "reference_designator": "Reference Designator",
+        "next": "Next",
+        "pin_name_col": "Pin Name",
+        "active_low_col": "Active Low",
+        "true_val": "True",
+        "false_val": "False",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -282,6 +289,13 @@ STRINGS = {
         "search_package_hint": "Cerca package…",
         "search_symbol_hint": "Cerca simbolo…",
         "positive_integer_error": "Inserire un intero positivo non nullo",
+        "symbol_mode": "Simbolo",
+        "reference_designator": "Designatore di Riferimento",
+        "next": "Avanti",
+        "pin_name_col": "Nome Pin",
+        "active_low_col": "Attivo Basso",
+        "true_val": "Vero",
+        "false_val": "Falso",
     },
 }
 
