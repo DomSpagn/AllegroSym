@@ -222,6 +222,7 @@ STRINGS = {
         "step1_subtitle": "Define Symbol Properties",
         "step2_subtitle": "Define Pin Properties",
         "step3_subtitle": "Define Pin Placement",
+        "select_part": "Part #",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -308,6 +309,7 @@ STRINGS = {
         "step1_subtitle": "Definisci le Proprietà del Simbolo",
         "step2_subtitle": "Definisci le Proprietà dei Pin",
         "step3_subtitle": "Posizionamento dei Pin",
+        "select_part": "Part #",
     },
 }
 

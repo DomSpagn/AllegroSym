@@ -263,6 +263,7 @@ def show_main(page: ft.Page, cfg: dict):
     _add_pkg_title_ref              = ft.Ref[ft.Text]()
     _new_sym_step3_title_ref        = ft.Ref[ft.Text]()
     _new_sym_step3_summary_ref      = ft.Ref[ft.Column]()
+    _new_sym_step3_part_dd_ref      = ft.Ref[ft.Dropdown]()
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
     def update_symbol_buttons():
         pkg_ok = len(packages) > 0
@@ -1882,21 +1883,14 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _show_step3(e):
         """Show the New Symbol 3/3 full-screen view with a summary."""
-        # Build summary rows
-        pin_count = len(_fp_state.get("pins", []))
-        filled = sum(
-            1 for p in _fp_state.get("pins", [])
-            if p.get("number", "").strip() and p.get("name", "").strip() and p.get("part_number", "").strip()
-        )
-        rows = [
-            ft.Text(f"{s.get('symbol_name', 'Symbol Name')}: {sym_name_field.value.strip()}", size=14),
-            ft.Text(f"{s.get('symbol_parts', 'Parts')}: {sym_parts_field.value.strip()}", size=14),
-            ft.Text(f"{s.get('package_type', 'Package')}: {pkg_dropdown.value or ''}", size=14),
-            ft.Text(f"{s.get('reference_designator', 'Reference Designator')}: {ref_des_dropdown.value or ''}", size=14),
-            ft.Text(f"Pin: {filled}/{pin_count}", size=14),
-        ]
-        if _new_sym_step3_summary_ref.current:
-            _new_sym_step3_summary_ref.current.controls = rows
+        # Build part selector options
+        parts_str = sym_parts_field.value.strip()
+        num_parts = int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1
+        if _new_sym_step3_part_dd_ref.current:
+            _new_sym_step3_part_dd_ref.current.options = [
+                ft.dropdown.Option(str(i)) for i in range(1, num_parts + 1)
+            ]
+            _new_sym_step3_part_dd_ref.current.value = "1"
         if _new_sym_step3_title_ref.current:
             _new_sym_step3_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 3/3"
         new_sym_panel.visible = False
@@ -2046,13 +2040,15 @@ def show_main(page: ft.Page, cfg: dict):
                     color=ft.colors.GREY_500,
                     text_align=ft.TextAlign.CENTER,
                 ),
-                ft.Container(expand=True, alignment=ft.alignment.center,
-                    content=ft.Column(
-                        ref=_new_sym_step3_summary_ref,
-                        controls=[],
-                        spacing=10,
-                        horizontal_alignment=ft.CrossAxisAlignment.START,
-                        tight=True,
+                ft.Container(
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(top=6, bottom=2),
+                    content=ft.Dropdown(
+                        ref=_new_sym_step3_part_dd_ref,
+                        label=s.get("select_part", "Working on Part #"),
+                        width=240,
+                        options=[ft.dropdown.Option("1")],
+                        value="1",
                     ),
                 ),
                 ft.Container(
