@@ -1065,10 +1065,7 @@ def show_main(page: ft.Page, cfg: dict):
         # entity/
         os.makedirs(os.path.join(dehdl_dir, "entity"), exist_ok=True)
 
-        # part_table/
-        part_table_dir = os.path.join(dehdl_dir, "part_table")
-        os.makedirs(part_table_dir, exist_ok=True)
-        open(os.path.join(part_table_dir, "part.ptf"), "a").close()
+
 
         # sym_1 … sym_N/
         for part_num in range(1, num_parts + 1):
