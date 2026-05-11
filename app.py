@@ -233,7 +233,7 @@ def show_main(page: ft.Page, cfg: dict):
     _pin_method = {"value": None, "waiting_pin1": False}
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
-    _pin_hover_tooltip_ref          = ft.Ref[ft.Column]()
+    _pin_hover_tooltip_ref          = ft.Ref[ft.Container]()
     _alphanumeric_pkg_container_ref = ft.Ref[ft.Container]()
     _alphanumeric_pkg_dd_ref        = ft.Ref[ft.Dropdown]()
     _alphanumeric_pkg_type          = {"value": None}
@@ -284,7 +284,7 @@ def show_main(page: ft.Page, cfg: dict):
         options=[ft.dropdown.Option(pkg_display_name(p)) for p in packages],
     )
     ref_des_dropdown = ft.Dropdown(
-        label="Reference Designator",
+        label=s.get("reference_designator", "Reference Designator"),
         width=320,
         options=[
             ft.dropdown.Option("B",   "B - fan"),
@@ -661,8 +661,19 @@ def show_main(page: ft.Page, cfg: dict):
             on_hover=_handle_img_hover,
             content=canvas_ctrl,
         )
+        tooltip_overlay = ft.Container(
+            ref=_pin_hover_tooltip_ref,
+            visible=False,
+            left=0,
+            top=0,
+            bgcolor=ft.colors.with_opacity(0.82, ft.colors.WHITE),
+            border_radius=6,
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            content=ft.Column(controls=[], spacing=2,
+                              horizontal_alignment=ft.CrossAxisAlignment.START),
+        )
         preview_stack = ft.Stack(
-            [img_ctrl, tap_layer], width=_interactive_w, height=preview_h
+            [img_ctrl, tap_layer, tooltip_overlay], width=_interactive_w, height=preview_h
         )
 
         pin_method_dd = ft.Dropdown(
@@ -702,16 +713,8 @@ def show_main(page: ft.Page, cfg: dict):
             ),
         )
 
-        hover_tooltip = ft.Column(
-            ref=_pin_hover_tooltip_ref,
-            controls=[],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=2,
-            visible=False,
-        )
-
         preview_column = ft.Column(
-            [pin_method_dd, alphanumeric_pkg_container, hint_text, preview_stack, hover_tooltip],
+            [pin_method_dd, alphanumeric_pkg_container, hint_text, preview_stack],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
         )
@@ -859,14 +862,18 @@ def show_main(page: ft.Page, cfg: dict):
                     if has_id and has_name:
                         kvs.append(f"Active Low: {active_low}")
                         kvs.append(f"Part #: {part_num}")
-                    _pin_hover_tooltip_ref.current.controls = [
-                        ft.Text(kv, size=13, italic=True,
-                                color=ft.colors.LIGHT_BLUE_200,
-                                text_align=ft.TextAlign.CENTER)
+                    tip = _pin_hover_tooltip_ref.current
+                    tip.content.controls = [
+                        ft.Text(kv, size=12, italic=True,
+                                weight=ft.FontWeight.BOLD,
+                                color=ft.colors.BLACK)
                         for kv in kvs
                     ]
-                    _pin_hover_tooltip_ref.current.visible = True
-                    _pin_hover_tooltip_ref.current.update()
+                    estimated_h = len(kvs) * 20 + 12
+                    tip.left = dx
+                    tip.top  = max(0, dy - estimated_h - 4)
+                    tip.visible = True
+                    tip.update()
                 elif _pin_hover_tooltip_ref.current and _pin_hover_tooltip_ref.current.visible:
                     _pin_hover_tooltip_ref.current.visible = False
                     _pin_hover_tooltip_ref.current.update()
@@ -1805,7 +1812,7 @@ def show_main(page: ft.Page, cfg: dict):
                     alignment=ft.alignment.center,
                     padding=ft.padding.symmetric(vertical=10),
                     content=ft.TextButton(
-                        "Next",
+                        s.get("next", "Next"),
                         ref=_next_sym_btn_ref,
                         on_click=_on_next_click,
                         disabled=True,
@@ -1964,7 +1971,7 @@ def show_main(page: ft.Page, cfg: dict):
                     [
                         ft.ElevatedButton(
                             ref=_sym_mode_btn_ref,
-                            text="Symbol",
+                            text=s.get("symbol_mode", "Symbol"),
                             bgcolor=ft.colors.BLUE,
                             color=ft.colors.WHITE,
                             on_click=_on_symbol_mode,
