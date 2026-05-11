@@ -1055,7 +1055,12 @@ def show_main(page: ft.Page, cfg: dict):
         # chips/
         chips_dir = os.path.join(dehdl_dir, "chips")
         os.makedirs(chips_dir, exist_ok=True)
-        open(os.path.join(chips_dir, "chips.prt"), "a").close()
+
+        chips_prt_path = os.path.join(chips_dir, "chips.prt")
+        open(chips_prt_path, "a").close()
+        # Crea master.tag con il contenuto 'chips.prt' nella stessa directory
+        with open(os.path.join(chips_dir, "master.tag"), "w", encoding="utf-8") as f:
+            f.write("chips.prt")
 
         # entity/
         os.makedirs(os.path.join(dehdl_dir, "entity"), exist_ok=True)
