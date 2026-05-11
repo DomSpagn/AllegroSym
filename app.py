@@ -259,6 +259,10 @@ def show_main(page: ft.Page, cfg: dict):
     _next_sym_bar_ref               = ft.Ref[ft.Container]()
     _next_sym_btn_ref               = ft.Ref[ft.TextButton]()
     _new_sym_title_ref              = ft.Ref[ft.Text]()
+    _new_sym_subtitle_ref           = ft.Ref[ft.Text]()
+    _add_pkg_title_ref              = ft.Ref[ft.Text]()
+    _new_sym_step3_title_ref        = ft.Ref[ft.Text]()
+    _new_sym_step3_summary_ref      = ft.Ref[ft.Column]()
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
     def update_symbol_buttons():
         pkg_ok = len(packages) > 0
@@ -474,6 +478,8 @@ def show_main(page: ft.Page, cfg: dict):
             ),
         )
         edit_fields_container_ref.current.update()
+        if _add_pkg_title_ref.current:
+            _add_pkg_title_ref.current.value = s.get("add_package", "Add Package") + " 1/2"
 
     def _set_two_col_layout():
         """2-column layout: fields left, image right (scrollable). Save/Cancel in bottom bar."""
@@ -516,6 +522,8 @@ def show_main(page: ft.Page, cfg: dict):
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         )
         edit_fields_container_ref.current.update()
+        if _add_pkg_title_ref.current:
+            _add_pkg_title_ref.current.value = s.get("add_package", "Add Package") + " 2/2"
 
     def _set_new_sym_centered_layout():
         if _new_sym_content_ref.current is None:
@@ -644,7 +652,7 @@ def show_main(page: ft.Page, cfg: dict):
         _fp_state["scale_x"] = scale
         _fp_state["scale_y"] = scale
 
-        if not _fp_state["pins"]:
+        if not _fp_state["pins"] and image_path:
             _fp_state["pins"] = [
                 {"bbox_orig": bb, "name": "", "number": ""}
                 for bb in detect_orange_pins(image_path)
@@ -1108,16 +1116,42 @@ def show_main(page: ft.Page, cfg: dict):
         if not dname:
             return
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
+        # Check footprint exists before proceeding
+        fp_check = pkg.get("footprint", "") if pkg else ""
+        if not fp_check or not os.path.isfile(fp_check):
+            dlg = ft.AlertDialog(
+                title=ft.Row(
+                    [
+                        ft.Icon(ft.icons.ERROR_OUTLINE, color=ft.colors.RED_400, size=26),
+                        ft.Text(s.get("missing_footprint_title", "Missing Footprint"),
+                                weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=8,
+                ),
+                content=ft.Text(s.get("missing_footprint_body",
+                    "The footprint image for this package is missing.\n"
+                    "Delete the package and re-add it to restore the image.")),
+                actions=[ft.TextButton(s.get("close", "Close"),
+                                       on_click=lambda _: close_dlg(dlg))],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.open(dlg)
+            return
         if _next_sym_bar_ref.current:
             _next_sym_bar_ref.current.visible = False
-        if pkg and pkg.get("footprint") and os.path.isfile(pkg["footprint"]):
+        if _new_sym_title_ref.current:
+            _new_sym_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 2/3"
+        if _new_sym_subtitle_ref.current:
+            _new_sym_subtitle_ref.current.value = s.get("step2_subtitle", "Define Pin Properties")
+        _set_new_sym_two_col_layout()
+        if pkg:
             _fp_state["pins"] = [
                 {"bbox_orig": tuple(p["bbox_orig"]), "name": p.get("name", ""), "number": p.get("number", "")}
                 for p in pkg.get("pins_data", [])
             ]
-            _sym_pkg_ref["footprint"] = pkg["footprint"]
-            _set_new_sym_two_col_layout()
-            _build_interactive_preview(_theme_fp_path(pkg["footprint"]))
+            fp = pkg.get("footprint", "")
+            _sym_pkg_ref["footprint"] = fp
+            _build_interactive_preview(_theme_fp_path(fp))
         if _new_sym_bottom_bar_ref.current:
             _new_sym_bottom_bar_ref.current.visible = True
         page.update()
@@ -1146,6 +1180,8 @@ def show_main(page: ft.Page, cfg: dict):
         ref_des_dropdown.value  = None
         _reset_pkg_state()
         _set_new_sym_centered_layout()
+        if _new_sym_title_ref.current:
+            _new_sym_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 1/3"
         if _next_sym_btn_ref.current:
             _next_sym_btn_ref.current.disabled = True
             _next_sym_btn_ref.current.opacity  = 0.35
@@ -1153,6 +1189,7 @@ def show_main(page: ft.Page, cfg: dict):
             _next_sym_bar_ref.current.visible = True
         if _new_sym_bottom_bar_ref.current:
             _new_sym_bottom_bar_ref.current.visible = False
+        _new_sym_step3_panel.visible = False
         new_sym_panel.visible   = True
         page.update()
 
@@ -1300,6 +1337,7 @@ def show_main(page: ft.Page, cfg: dict):
         save_symbols(symbols)
         symbols[:] = load_symbols()
         new_sym_panel.visible = False
+        _new_sym_step3_panel.visible = False
         update_symbol_buttons()
 
     def _on_del_sym_dd_select(e):
@@ -1315,6 +1353,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_sym_dd.options = [ft.dropdown.Option(s_["name"]) for s_ in symbols]
         del_sym_dd.value   = None
         new_sym_panel.visible  = False
+        _new_sym_step3_panel.visible = False
         add_pkg_panel.visible  = False
         del_pkg_panel.visible  = False
         sym_list_panel.visible = False
@@ -1350,6 +1389,7 @@ def show_main(page: ft.Page, cfg: dict):
         _pkg_mode["mode"]          = "add"
         _pkg_mode["original_idx"]  = -1
         new_sym_panel.visible      = False
+        _new_sym_step3_panel.visible = False
         del_pkg_panel.visible      = False
         del_sym_panel.visible      = False
         sym_list_panel.visible     = False
@@ -1357,6 +1397,8 @@ def show_main(page: ft.Page, cfg: dict):
         search_pkg_panel.visible   = False
         _reset_pkg_state()
         _set_centered_layout()
+        if _add_pkg_title_ref.current:
+            _add_pkg_title_ref.current.value = s.get("add_package", "Add Package") + " 1/2"
         if _bottom_bar_ref.current:
             _bottom_bar_ref.current.visible = False
         add_pkg_panel.visible = True
@@ -1417,6 +1459,7 @@ def show_main(page: ft.Page, cfg: dict):
     # -- Search Package (footprint guide) ------------------------------------
     def show_search_package(e):
         new_sym_panel.visible  = False
+        _new_sym_step3_panel.visible = False
         add_pkg_panel.visible  = False
         del_pkg_panel.visible  = False
         del_sym_panel.visible  = False
@@ -1431,6 +1474,7 @@ def show_main(page: ft.Page, cfg: dict):
         del_pkg_dd.options     = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
         del_pkg_dd.value       = None
         new_sym_panel.visible  = False
+        _new_sym_step3_panel.visible = False
         add_pkg_panel.visible  = False
         del_sym_panel.visible  = False
         sym_list_panel.visible = False
@@ -1658,6 +1702,7 @@ def show_main(page: ft.Page, cfg: dict):
 
     def show_symbols(e):
         new_sym_panel.visible  = False
+        _new_sym_step3_panel.visible = False
         add_pkg_panel.visible  = False
         del_pkg_panel.visible  = False
         del_sym_panel.visible  = False
@@ -1835,22 +1880,71 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
+    def _show_step3(e):
+        """Show the New Symbol 3/3 full-screen view with a summary."""
+        # Build summary rows
+        pin_count = len(_fp_state.get("pins", []))
+        filled = sum(
+            1 for p in _fp_state.get("pins", [])
+            if p.get("number", "").strip() and p.get("name", "").strip() and p.get("part_number", "").strip()
+        )
+        rows = [
+            ft.Text(f"{s.get('symbol_name', 'Symbol Name')}: {sym_name_field.value.strip()}", size=14),
+            ft.Text(f"{s.get('symbol_parts', 'Parts')}: {sym_parts_field.value.strip()}", size=14),
+            ft.Text(f"{s.get('package_type', 'Package')}: {pkg_dropdown.value or ''}", size=14),
+            ft.Text(f"{s.get('reference_designator', 'Reference Designator')}: {ref_des_dropdown.value or ''}", size=14),
+            ft.Text(f"Pin: {filled}/{pin_count}", size=14),
+        ]
+        if _new_sym_step3_summary_ref.current:
+            _new_sym_step3_summary_ref.current.controls = rows
+        if _new_sym_step3_title_ref.current:
+            _new_sym_step3_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 3/3"
+        new_sym_panel.visible = False
+        _new_sym_step3_panel.visible = True
+        page.update()
+
+    def _go_back_to_step2(e):
+        _new_sym_step3_panel.visible = False
+        new_sym_panel.visible = True
+        page.update()
+
+    def _go_back_to_step1(e):
+        if _next_sym_bar_ref.current:
+            _next_sym_bar_ref.current.visible = True
+        if _new_sym_bottom_bar_ref.current:
+            _new_sym_bottom_bar_ref.current.visible = False
+        if _new_sym_title_ref.current:
+            _new_sym_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 1/3"
+        if _new_sym_subtitle_ref.current:
+            _new_sym_subtitle_ref.current.value = s.get("step1_subtitle", "Define Symbol Properties")
+        _set_new_sym_centered_layout()
+        page.update()
+
     _new_sym_action_row = ft.Row(
         [
             ft.ElevatedButton(
-                s.get("generate_symbol", "Generate Symbol"),
+                s.get("next", "Next"),
                 ref=generate_sym_btn_ref,
-                icon=ft.icons.BOLT,
-                on_click=_generate_symbol,
+                icon=ft.icons.ARROW_FORWARD,
+                on_click=_show_step3,
                 color=ft.colors.WHITE,
-                bgcolor=ft.colors.GREEN_700,
+                bgcolor=ft.colors.BLUE_700,
                 disabled=True,
                 opacity=0.35,
             ),
             ft.ElevatedButton(
+                s.get("back", "Back"),
+                icon=ft.icons.ARROW_BACK,
+                on_click=_go_back_to_step1,
+                color=ft.colors.WHITE,
+                bgcolor=ft.colors.GREY_600,
+            ),
+            ft.ElevatedButton(
                 s.get("close", "Cancel"),
                 on_click=lambda e: (
-                    setattr(new_sym_panel, "visible", False) or page.update()
+                    setattr(new_sym_panel, "visible", False)
+                    or setattr(_new_sym_step3_panel, "visible", False)
+                    or page.update()
                 ),
                 color=ft.colors.WHITE,
                 bgcolor=ft.colors.GREY_600,
@@ -1874,6 +1968,14 @@ def show_main(page: ft.Page, cfg: dict):
                     size=16,
                     weight=ft.FontWeight.W_600,
                     color=ft.colors.ORANGE,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Text(
+                    ref=_new_sym_subtitle_ref,
+                    value=s.get("step1_subtitle", "Define Symbol Properties"),
+                    size=12,
+                    italic=True,
+                    color=ft.colors.GREY_500,
                     text_align=ft.TextAlign.CENTER,
                 ),
                 # Frame 2  main content (centered fields or two-col with preview)
@@ -1919,6 +2021,80 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
+    def _do_generate_from_step3(e):
+        _new_sym_step3_panel.visible = False
+        _generate_symbol(e)
+
+    _new_sym_step3_panel = ft.Container(
+        visible=False,
+        expand=True,
+        padding=ft.padding.symmetric(horizontal=12, vertical=12),
+        content=ft.Column(
+            [
+                ft.Text(
+                    ref=_new_sym_step3_title_ref,
+                    value=s.get("new_symbol", "New Symbol") + " 3/3",
+                    size=16,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.colors.ORANGE,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Text(
+                    s.get("step3_subtitle", "Define Pin Placement"),
+                    size=12,
+                    italic=True,
+                    color=ft.colors.GREY_500,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Container(expand=True, alignment=ft.alignment.center,
+                    content=ft.Column(
+                        ref=_new_sym_step3_summary_ref,
+                        controls=[],
+                        spacing=10,
+                        horizontal_alignment=ft.CrossAxisAlignment.START,
+                        tight=True,
+                    ),
+                ),
+                ft.Container(
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.symmetric(vertical=10),
+                    content=ft.Row(
+                        [
+                            ft.ElevatedButton(
+                                s.get("generate_symbol", "Generate Symbol"),
+                                icon=ft.icons.BOLT,
+                                on_click=_do_generate_from_step3,
+                                color=ft.colors.WHITE,
+                                bgcolor=ft.colors.GREEN_700,
+                            ),
+                            ft.ElevatedButton(
+                                s.get("back", "Back"),
+                                icon=ft.icons.ARROW_BACK,
+                                on_click=_go_back_to_step2,
+                                color=ft.colors.WHITE,
+                                bgcolor=ft.colors.GREY_600,
+                            ),
+                            ft.ElevatedButton(
+                                s.get("close", "Cancel"),
+                                on_click=lambda e: (
+                                    setattr(_new_sym_step3_panel, "visible", False)
+                                    or setattr(new_sym_panel, "visible", False)
+                                    or page.update()
+                                ),
+                                color=ft.colors.WHITE,
+                                bgcolor=ft.colors.GREY_600,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                    ),
+                ),
+            ],
+            spacing=8,
+            expand=True,
+        ),
+    )
+
     add_pkg_panel = ft.Container(
         visible=False,
         expand=True,
@@ -1927,6 +2103,7 @@ def show_main(page: ft.Page, cfg: dict):
             [
                 ft.Text(
                     s.get("add_package", "Add Package"),
+                    ref=_add_pkg_title_ref,
                     size=16,
                     weight=ft.FontWeight.W_600,
                     color=ft.colors.ORANGE,
@@ -2034,6 +2211,7 @@ def show_main(page: ft.Page, cfg: dict):
 
         # Resetto la visibilità di tutti i pannelli (pulisco le view)
         new_sym_panel.visible = False
+        _new_sym_step3_panel.visible = False
         del_sym_panel.visible = False
         add_pkg_panel.visible = False
         del_pkg_panel.visible = False
@@ -2315,7 +2493,7 @@ def show_main(page: ft.Page, cfg: dict):
     )
 
     body = ft.Column(
-        [new_sym_panel, del_sym_panel, add_pkg_panel, del_pkg_panel,
+        [new_sym_panel, _new_sym_step3_panel, del_sym_panel, add_pkg_panel, del_pkg_panel,
          pkg_list_panel, sym_list_panel, search_pkg_panel],
         expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
