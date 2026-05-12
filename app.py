@@ -278,6 +278,14 @@ def show_main(page: ft.Page, cfg: dict):
     _SYM_PAD_X       = 50
     _SYM_SIDES       = ["left", "right", "top", "bottom"]
     _SYM_GRID        = 20   # canvas pixels between grid lines / snap step
+    # ── Body resize state ───────────────────────────────────────────────────
+    _sym_body_size: dict   = {}        # {part_str: {"w": px, "h": px}} user-set body size
+    _sym_body_resize: dict = {         # resize-handle drag state
+        "active": False,
+        "orig_w": 0, "orig_h": 0,
+        "delta_x": 0.0, "delta_y": 0.0,
+        "part_num": 1,
+    }
     # ── Drag state ──────────────────────────────────────────────────────────
     _sym_canvas_ref  = ft.Ref[cv.Canvas]()
     _sym_pin_order: dict = {}   # {part_str: {side: [idx,...]}}
@@ -2092,8 +2100,11 @@ def show_main(page: ft.Page, cfg: dict):
         n_lr  = max(len(left_pins), len(right_pins), 1)
         n_tb  = max(len(top_pins),  len(bottom_pins), 1)
 
-        body_h = n_lr * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y
-        body_w = max(_SYM_BODY_W, n_tb * _SYM_PIN_SPACING + 2 * _SYM_PAD_X)
+        auto_h = n_lr * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y
+        auto_w = max(_SYM_BODY_W, n_tb * _SYM_PIN_SPACING + 2 * _SYM_PAD_X)
+        _bsz   = _sym_body_size.get(str(part_num), {})
+        body_h = max(_SYM_GRID, _bsz.get("h", auto_h))
+        body_w = max(_SYM_GRID, _bsz.get("w", auto_w))
 
         canvas_h = body_h + _SYM_PIN_STUB * 2 + 80
         canvas_w = _SYM_CANVAS_W
@@ -2165,6 +2176,13 @@ def show_main(page: ft.Page, cfg: dict):
         shapes.append(cv.Rect(body_l, body_top, body_w, body_h,
             paint=Paint(color=ft.colors.BLUE_300, stroke_width=2,
                         style=PaintingStyle.STROKE)))
+
+        # ── SE resize handle ──
+        _rh = 8
+        shapes.append(cv.Rect(body_r - _rh, body_bot - _rh, _rh * 2, _rh * 2,
+            paint=Paint(color=ft.colors.BLUE_400, style=PaintingStyle.FILL)))
+        hit_areas.append((body_r - _rh - 6, body_bot - _rh - 6,
+                          body_r + _rh + 6, body_bot + _rh + 6, "resize", "se", None))
 
         # ── Snap-point cursor during drag ──
         if drag_idx is not None and drag_x is not None and drag_y is not None:
@@ -2270,10 +2288,20 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _on_sym_pan_start(e):
         tx, ty = e.local_x, e.local_y
-        for x1, y1, x2, y2, pidx, side, row in _sym_editor_state["hit_areas"]:
+        for x1, y1, x2, y2, item4, side, row in _sym_editor_state["hit_areas"]:
             if x1 <= tx <= x2 and y1 <= ty <= y2:
+                if item4 == "resize":
+                    st = _sym_editor_state
+                    _sym_body_resize.update({
+                        "active": True,
+                        "part_num": _sym_step3_part["value"],
+                        "orig_w": st["body_r"] - st["body_l"],
+                        "orig_h": st["body_bot"] - st["body_top"],
+                        "delta_x": 0.0, "delta_y": 0.0,
+                    })
+                    return
                 _sym_drag["active"]   = True
-                _sym_drag["pin_idx"]  = pidx
+                _sym_drag["pin_idx"]  = item4
                 _sym_drag["side"]     = side
                 _sym_drag["orig_row"] = row
                 _sym_drag["cur_x"]    = tx
@@ -2282,6 +2310,19 @@ def show_main(page: ft.Page, cfg: dict):
                 return
 
     def _on_sym_pan_update(e):
+        if _sym_body_resize["active"]:
+            _sym_body_resize["delta_x"] += e.delta_x
+            _sym_body_resize["delta_y"] += e.delta_y
+            snap_w = int(round(max(_SYM_GRID,
+                _sym_body_resize["orig_w"] + 2 * _sym_body_resize["delta_x"]) / _SYM_GRID) * _SYM_GRID)
+            snap_h = int(round(max(_SYM_GRID,
+                _sym_body_resize["orig_h"] + _sym_body_resize["delta_y"]) / _SYM_GRID) * _SYM_GRID)
+            _sym_body_size[str(_sym_body_resize["part_num"])] = {"w": snap_w, "h": snap_h}
+            shapes, _ = _build_sym_shapes(_sym_body_resize["part_num"])
+            if _sym_canvas_ref.current:
+                _sym_canvas_ref.current.shapes = shapes
+                _sym_canvas_ref.current.update()
+            return
         if not _sym_drag["active"]:
             return
         _sym_drag["cur_x"] += e.delta_x
@@ -2300,6 +2341,10 @@ def show_main(page: ft.Page, cfg: dict):
             _sym_canvas_ref.current.update()
 
     def _on_sym_pan_end(e):
+        if _sym_body_resize["active"]:
+            _sym_body_resize["active"] = False
+            _refresh_sym_editor(_sym_body_resize["part_num"])
+            return
         if not _sym_drag["active"]:
             return
         _sym_drag["active"] = False
@@ -2449,6 +2494,7 @@ def show_main(page: ft.Page, cfg: dict):
         if _new_sym_step3_title_ref.current:
             _new_sym_step3_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 3/3"
         _sym_step3_part["value"] = 1
+        _sym_body_size.clear()
         new_sym_panel.visible = False
         _new_sym_step3_panel.visible = True
         page.update()
