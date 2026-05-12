@@ -272,7 +272,7 @@ def show_main(page: ft.Page, cfg: dict):
     _sym_step3_part: dict = {"value": 1}
     _SYM_CANVAS_W    = 720
     _SYM_PIN_SPACING = 60
-    _SYM_PIN_STUB    = 80
+    _SYM_PIN_STUB    = 20
     _SYM_BODY_W      = 280
     _SYM_PAD_Y       = 50
     _SYM_PAD_X       = 50
@@ -1287,7 +1287,7 @@ def show_main(page: ft.Page, cfg: dict):
         con.close()
 
         # -- Struttura cartelle DEHDL symbol ----------------------------------
-        dehdl_dir = os.path.join(sym_dir, "DEHDL symbol")
+        dehdl_dir = os.path.join(sym_dir, name)
 
         # chips/
         chips_dir = os.path.join(dehdl_dir, "chips")
@@ -1387,62 +1387,96 @@ def show_main(page: ft.Page, cfg: dict):
             top_pins_s    = _ordered(top_pins_s,    "top")
             bottom_pins_s = _ordered(bottom_pins_s, "bottom")
 
-            _n_lr = max(len(left_pins_s), len(right_pins_s), 1)
-            _n_tb = max(len(top_pins_s),  len(bottom_pins_s), 1)
-            _bhh  = _n_lr * 100 // 2 + 50   # half body height in mils
-            _bhw  = _n_tb * 100 // 2 + 50   # half body width in mils
+            # ── DEHDL coordinate conversion ─────────────────────────────────────
+            # Symbol Grid: Size 0.05 in × Multiple 4 = 0.20 in = 200 mils per
+            # canvas grid step (_SYM_GRID px).  Logic Grid: 0.05 × 5 = 250 mils.
+            _DEHDL_MIL_PER_STEP = 100  # mils per _SYM_GRID canvas pixels
 
-            def _pym(row, bhh=_bhh):   # y for left/right pins (top → big y)
-                return bhh - 50 - row * 100
+            # Recompute body layout for this part (mirrors _build_sym_shapes)
+            _n_lr_g  = max(len(left_pins_s), len(right_pins_s), 1)
+            _n_tb_g  = max(len(top_pins_s),  len(bottom_pins_s), 1)
+            _auto_bh = int(round((_n_lr_g * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y) / _SYM_GRID) * _SYM_GRID)
+            _auto_bw = int(round(max(_SYM_BODY_W, _n_tb_g * _SYM_PIN_SPACING + 2 * _SYM_PAD_X) / _SYM_GRID) * _SYM_GRID)
+            _bsz_g   = _sym_body_size.get(str(part_num), {})
+            _body_h  = max(_SYM_GRID, int(round(_bsz_g.get("h", _auto_bh) / _SYM_GRID) * _SYM_GRID))
+            _body_w  = max(_SYM_GRID, int(round(_bsz_g.get("w", _auto_bw) / _SYM_GRID) * _SYM_GRID))
+            _cx_g    = _SYM_CANVAS_W / 2
+            _body_l  = int(round((_cx_g - _body_w / 2) / _SYM_GRID) * _SYM_GRID)
+            _body_r  = _body_l + _body_w
+            _body_top = int(round((_SYM_PIN_STUB + 44) / _SYM_GRID) * _SYM_GRID)
+            _body_bot = _body_top + _body_h
 
-            def _pxm(col, bhw=_bhw):   # x for top/bottom pins (left → small x)
-                return -bhw + 50 + col * 100
+            def _snp_g(v): return int(round(v / _SYM_GRID) * _SYM_GRID)
+            def _mx(cx):   return int(round((cx - _body_l) / _SYM_GRID)) * _DEHDL_MIL_PER_STEP
+            def _my(cy):   return int(round((_body_bot - cy) / _SYM_GRID)) * _DEHDL_MIL_PER_STEP
 
-            css_lines = [
-                "FILE_TYPE=SCHEMATIC_SYMBOL ;\n",
-                f"PRIMITIVE '{name}','{primitive_id}' ;\n",
-                " DEFINITION\n",
-                "  PIN\n",
+            _bw_mil = _mx(_body_r)    # body width in mils
+            _bh_mil = _my(_body_top)  # body height in mils
+
+            def _gpos_g(pin_idx, side, row_or_col):
+                """Return snapped canvas (gx, gy) for a pin, matching _build_sym_shapes."""
+                layout = _sym_pin_layout.get(str(pin_idx), {})
+                if "gx" in layout and "gy" in layout:
+                    return _snp_g(layout["gx"]), _snp_g(layout["gy"])
+                if side == "left":
+                    return (_snp_g(_body_l - _SYM_PIN_STUB),
+                            _snp_g(_body_top + _SYM_PAD_Y + row_or_col * _SYM_PIN_SPACING))
+                if side == "right":
+                    return (_snp_g(_body_r + _SYM_PIN_STUB),
+                            _snp_g(_body_top + _SYM_PAD_Y + row_or_col * _SYM_PIN_SPACING))
+                if side == "top":
+                    return (_snp_g(_body_l + _SYM_PAD_X + row_or_col * _SYM_PIN_SPACING),
+                            _snp_g(_body_top - _SYM_PIN_STUB))
+                # bottom
+                return (_snp_g(_body_l + _SYM_PAD_X + row_or_col * _SYM_PIN_SPACING),
+                        _snp_g(_body_bot + _SYM_PIN_STUB))
+
+            # Body edges (4 lines, origin at body bottom-left, Y upward)
+            l_lines = [
+                f"L 0 {_bh_mil} 0 0 -1 74\n",
+                f"L 0 {_bh_mil} {_bw_mil} {_bh_mil} -1 74\n",
+                f"L 0 0 {_bw_mil} 0 -1 74\n",
+                f"L {_bw_mil} {_bh_mil} {_bw_mil} 0 -1 74\n",
             ]
 
-            def _pin_lines(pin_idx, pin, xcoord, ycoord, rotation):
-                pname   = pin.get("name", "")
-                pnum    = pin.get("number", "")
-                neg     = pin.get("negated", False)
-                vec     = ["0"] * num_parts
-                if 0 <= part_num - 1 < num_parts:
-                    vec[part_num - 1] = pnum or "0"
-                return [
-                    f"   'N{pnum}_{pname}' :\n",
-                    f"    XCOORD='{xcoord}' ;\n",
-                    f"    YCOORD='{ycoord}' ;\n",
-                    f"    ROTATION='{rotation}' ;\n",
-                    f"    PIN_NUMBER='({','.join(vec)})' ;\n",
-                    f"    NEGATED='{'TRUE' if neg else 'FALSE'}' ;\n",
-                ]
+            # Pin stubs
+            for _pins_list, _side in (
+                (left_pins_s,   "left"),
+                (right_pins_s,  "right"),
+                (top_pins_s,    "top"),
+                (bottom_pins_s, "bottom"),
+            ):
+                for _row, (_pi, _pp) in enumerate(_pins_list):
+                    _gx, _gy = _gpos_g(_pi, _side, _row)
+                    if _side == "left":
+                        _bx, _by = _body_l, _gy
+                    elif _side == "right":
+                        _bx, _by = _body_r, _gy
+                    elif _side == "top":
+                        _bx, _by = _gx, _body_top
+                    else:
+                        _bx, _by = _gx, _body_bot
+                    _x1, _y1 = _mx(_gx), _my(_gy)
+                    _x2, _y2 = _mx(_bx), _my(_by)
+                    l_lines.append(f"L {_x1} {_y1} {_x2} {_y2} -1 74\n")
 
-            for row, (pin_idx, pin) in enumerate(left_pins_s):
-                css_lines += _pin_lines(pin_idx, pin, -600, _pym(row), 0)
-            for row, (pin_idx, pin) in enumerate(right_pins_s):
-                css_lines += _pin_lines(pin_idx, pin,  600, _pym(row), 180)
-            for col, (pin_idx, pin) in enumerate(top_pins_s):
-                css_lines += _pin_lines(pin_idx, pin, _pxm(col), 600, 270)
-            for col, (pin_idx, pin) in enumerate(bottom_pins_s):
-                css_lines += _pin_lines(pin_idx, pin, _pxm(col), -600, 90)
-
-            css_lines += [
-                "  END_PIN ;\n",
-                "  BODY\n",
-                "   C_PATH='/LOGIC.1.1.1P' ;\n",
-                f"   C_VIEW='SYM_{part_num}' ;\n",
-                "  END_BODY ;\n",
-                " END_DEFINITION ;\n",
-                "END_PRIMITIVE ;\n",
-                "END.\n",
-            ]
+            css_content = (
+                'P "CATEGORY" "?" 360 545 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
+                'P "VOLTAGE" "?" 360 245 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "TOLERANCE" "?" 360 145 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "PACK_TYPE" "?" 360 -355 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "PATH" "?" 360 -255 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "COLOR" "?" 360 -155 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "WATTAGE" "?" 360 -55 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
+                'P "TYPE" "?" 360 645 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
+                'P "TECHNOLOGY" "?" 360 845 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
+                'P "SUPPLIER" "?" 360 745 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
+                'P "VALUE" "?" 300 975 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
+                'P "$LOCATION" "?" 300 1025 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
+            ) + "".join(l_lines)
 
             with open(os.path.join(sym_part_dir, "symbol.css"), "w", encoding="utf-8") as f:
-                f.writelines(css_lines)
+                f.write(css_content)
 
         entry = {
             "name":    name,
