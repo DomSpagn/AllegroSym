@@ -1439,7 +1439,9 @@ def show_main(page: ft.Page, cfg: dict):
                 f"L {_bw_mil} {_bh_mil} {_bw_mil} 0 -1 74\n",
             ]
 
-            # Pin stubs
+            # Pin stubs + T text for pin name (inside body, centered on stub)
+            _TEXT_OFFSET = _DEHDL_MIL_PER_STEP // 4   # 25 mils from body edge
+            t_lines = []
             for _pins_list, _side in (
                 (left_pins_s,   "left"),
                 (right_pins_s,  "right"),
@@ -1460,6 +1462,36 @@ def show_main(page: ft.Page, cfg: dict):
                     _x2, _y2 = _mx(_bx), _my(_by)
                     l_lines.append(f"L {_x1} {_y1} {_x2} {_y2} -1 74\n")
 
+                    # T instructions: pin name inside body
+                    # Format A: T X Y AngleX 0.00 48 0 0 0 0 FontStyle 74  (all sides)
+                    # Format B: T X Y 0.00 0.00 0 0 0 2 0 FontStyle 74     (left/right only)
+                    _pname = _pp.get("name", "")
+                    if _pname:
+                        _fs = 2 if _pp.get("negated", False) else 3
+                        _y_delta = 20  # mils below pin_y for Format A baseline
+                        if _side == "left":
+                            _tx_a, _ty_a, _ax = _TEXT_OFFSET, _y1 - _y_delta, 0.0
+                            _tx_b, _ty_b       = _TEXT_OFFSET, _y1
+                        elif _side == "right":
+                            _tx_a = _bw_mil - (3 * _DEHDL_MIL_PER_STEP // 2)
+                            _ty_a, _ax         = _y1 - _y_delta, 0.0
+                            _tx_b, _ty_b       = _bw_mil - _TEXT_OFFSET, _y1
+                        elif _side == "top":
+                            _tx_a, _ty_a, _ax  = _x1 + _y_delta, _bh_mil - _TEXT_OFFSET, 90.0
+                        else:  # bottom
+                            _tx_a, _ty_a, _ax  = _x1 + _y_delta, _TEXT_OFFSET, 90.0
+                        # Format A (all sides)
+                        t_lines.append(
+                            f"T {_tx_a} {_ty_a} {_ax:.2f} 0.00 48 0 0 0 0 {_fs} 74\n"
+                            f"{_pname}\n"
+                        )
+                        # Format B (left/right only)
+                        if _side in ("left", "right"):
+                            t_lines.append(
+                                f"T {_tx_b} {_ty_b} 0.00 0.00 0 0 0 2 0 {_fs} 74\n"
+                                f"{_pname}\n"
+                            )
+
             css_content = (
                 'P "CATEGORY" "?" 360 545 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
                 'P "VOLTAGE" "?" 360 245 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
@@ -1473,7 +1505,7 @@ def show_main(page: ft.Page, cfg: dict):
                 'P "SUPPLIER" "?" 360 745 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
                 'P "VALUE" "?" 300 975 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
                 'P "$LOCATION" "?" 300 1025 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
-            ) + "".join(l_lines)
+            ) + "".join(l_lines) + "".join(t_lines)
 
             with open(os.path.join(sym_part_dir, "symbol.css"), "w", encoding="utf-8") as f:
                 f.write(css_content)
@@ -2167,6 +2199,11 @@ def show_main(page: ft.Page, cfg: dict):
                 # Always re-snap in case the value was stored off-grid
                 gx = _snap(layout["gx"])
                 gy = _snap(layout["gy"])
+                # Enforce pin stays strictly outside the body on its assigned side
+                if side == "left"   and gx >= body_l:   gx = _snap(body_l - _SYM_GRID)
+                elif side == "right"  and gx <= body_r:   gx = _snap(body_r + _SYM_GRID)
+                elif side == "top"    and gy >= body_top: gy = _snap(body_top - _SYM_GRID)
+                elif side == "bottom" and gy <= body_bot: gy = _snap(body_bot + _SYM_GRID)
                 if gx != layout["gx"] or gy != layout["gy"]:
                     _sym_pin_layout[str(pin_idx)].update({"gx": gx, "gy": gy})
                 return gx, gy
