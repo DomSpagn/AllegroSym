@@ -283,6 +283,8 @@ def show_main(page: ft.Page, cfg: dict):
     _sym_body_resize: dict = {         # resize-handle drag state
         "active": False,
         "orig_w": 0, "orig_h": 0,
+        "orig_body_l": 0, "orig_body_r": 0, "orig_body_bot": 0,
+        "pin_snapshot": {},
         "delta_x": 0.0, "delta_y": 0.0,
         "part_num": 1,
     }
@@ -2100,23 +2102,24 @@ def show_main(page: ft.Page, cfg: dict):
         n_lr  = max(len(left_pins), len(right_pins), 1)
         n_tb  = max(len(top_pins),  len(bottom_pins), 1)
 
-        auto_h = n_lr * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y
-        auto_w = max(_SYM_BODY_W, n_tb * _SYM_PIN_SPACING + 2 * _SYM_PAD_X)
+        auto_h = int(round((n_lr * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y) / _SYM_GRID) * _SYM_GRID)
+        auto_w = int(round(max(_SYM_BODY_W, n_tb * _SYM_PIN_SPACING + 2 * _SYM_PAD_X) / _SYM_GRID) * _SYM_GRID)
         _bsz   = _sym_body_size.get(str(part_num), {})
-        body_h = max(_SYM_GRID, _bsz.get("h", auto_h))
-        body_w = max(_SYM_GRID, _bsz.get("w", auto_w))
+        body_h = max(_SYM_GRID, int(round(_bsz.get("h", auto_h) / _SYM_GRID) * _SYM_GRID))
+        body_w = max(_SYM_GRID, int(round(_bsz.get("w", auto_w) / _SYM_GRID) * _SYM_GRID))
 
         canvas_h = body_h + _SYM_PIN_STUB * 2 + 80
         canvas_w = _SYM_CANVAS_W
 
         cx       = canvas_w / 2
-        body_l   = cx - body_w / 2
-        body_r   = cx + body_w / 2
-        body_top = _SYM_PIN_STUB + 44
+        body_l   = int(round((cx - body_w / 2) / _SYM_GRID) * _SYM_GRID)
+        body_r   = body_l + body_w
+        body_top = int(round((_SYM_PIN_STUB + 44) / _SYM_GRID) * _SYM_GRID)
         body_bot = body_top + body_h
 
-        is_dark  = page.theme_mode == ft.ThemeMode.DARK
-        text_col = ft.colors.WHITE if is_dark else ft.colors.BLACK
+        is_dark  = True   # canvas always uses dark background
+        text_col = ft.colors.WHITE   # pin names
+        pnum_col = ft.colors.WHITE   # pin IDs
         pin_col  = ft.colors.CYAN_300
 
         # ── Snap helper ──
@@ -2127,7 +2130,12 @@ def show_main(page: ft.Page, cfg: dict):
         def _gpos(pin_idx, side, row_or_col):
             layout = _sym_pin_layout.get(str(pin_idx), {})
             if "gx" in layout and "gy" in layout:
-                return layout["gx"], layout["gy"]
+                # Always re-snap in case the value was stored off-grid
+                gx = _snap(layout["gx"])
+                gy = _snap(layout["gy"])
+                if gx != layout["gx"] or gy != layout["gy"]:
+                    _sym_pin_layout[str(pin_idx)].update({"gx": gx, "gy": gy})
+                return gx, gy
             if side == "left":
                 gx = _snap(body_l - _SYM_PIN_STUB)
                 gy = _snap(body_top + _SYM_PAD_Y + row_or_col * _SYM_PIN_SPACING)
@@ -2160,7 +2168,7 @@ def show_main(page: ft.Page, cfg: dict):
         hit_areas: list = []   # [(x1,y1,x2,y2, pin_idx, side, row)]
 
         # ── Grid lines ──
-        grid_c = ft.colors.with_opacity(0.12 if is_dark else 0.15, ft.colors.GREY_500)
+        grid_c = ft.colors.with_opacity(0.70, ft.colors.GREY_300)
         for gx_g in range(0, int(canvas_w) + _SYM_GRID, _SYM_GRID):
             shapes.append(cv.Line(gx_g, 0, gx_g, int(canvas_h),
                 paint=Paint(color=grid_c, stroke_width=0.5)))
@@ -2171,7 +2179,7 @@ def show_main(page: ft.Page, cfg: dict):
         # ── Body ──
         shapes.append(cv.Rect(body_l, body_top, body_w, body_h,
             paint=Paint(
-                color=ft.colors.with_opacity(0.04 if is_dark else 0.06, ft.colors.BLUE_200),
+                color=ft.colors.with_opacity(0.04, ft.colors.BLUE_200),
                 style=PaintingStyle.FILL)))
         shapes.append(cv.Rect(body_l, body_top, body_w, body_h,
             paint=Paint(color=ft.colors.BLUE_300, stroke_width=2,
@@ -2197,7 +2205,7 @@ def show_main(page: ft.Page, cfg: dict):
         # ── Centre labels ──
         center_y = body_top + body_h / 2
         shapes.append(cv.Text(cx, center_y - 14,
-            f"@{ref_des_dropdown.value or 'REFDES'}?",
+            f"{ref_des_dropdown.value or 'REFDES'}?",
             style=ft.TextStyle(size=12, color=ft.colors.ORANGE_300, weight=ft.FontWeight.BOLD),
             alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
             max_width=body_w - 8))
@@ -2216,17 +2224,20 @@ def show_main(page: ft.Page, cfg: dict):
             pcolor    = ft.colors.YELLOW_400 if is_ghost else pin_col
             sw        = 3 if is_ghost else 2
             neg       = pin.get("negated", False)
-            pname     = ("~" if neg else "") + pin.get("name", "")
+            pname     = pin.get("name", "")
             pnum      = pin.get("number", "")
+            _deco     = ft.TextDecoration.OVERLINE if neg else None
+            _ps12     = ft.TextStyle(size=12, color=text_col, decoration=_deco, decoration_color=text_col)
+            _ps11     = ft.TextStyle(size=11, color=text_col, decoration=_deco, decoration_color=text_col)
 
             if act_side == "left":
                 ix = body_l
                 shapes.append(cv.Line(px, py, ix, py, paint=Paint(color=pcolor, stroke_width=sw)))
                 shapes.append(cv.Text(ix + 3, py - 14, pnum,
-                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_left, max_width=40))
                 shapes.append(cv.Text(px - 2, py - 15, pname,
-                    style=ft.TextStyle(size=12, color=text_col),
+                    style=_ps12,
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT,
                     max_width=max(int(px) - 4, 4)))
                 if not is_ghost:
@@ -2235,10 +2246,10 @@ def show_main(page: ft.Page, cfg: dict):
                 ix = body_r
                 shapes.append(cv.Line(ix, py, px, py, paint=Paint(color=pcolor, stroke_width=sw)))
                 shapes.append(cv.Text(ix - 3, py - 14, pnum,
-                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT, max_width=40))
                 shapes.append(cv.Text(px + 2, py - 15, pname,
-                    style=ft.TextStyle(size=12, color=text_col),
+                    style=_ps12,
                     alignment=ft.alignment.top_left, text_align=ft.TextAlign.LEFT,
                     max_width=int(canvas_w - px) - 4))
                 if not is_ghost:
@@ -2247,10 +2258,10 @@ def show_main(page: ft.Page, cfg: dict):
                 iy = body_top
                 shapes.append(cv.Line(px, py, px, iy, paint=Paint(color=pcolor, stroke_width=sw)))
                 shapes.append(cv.Text(px + 3, iy + 2, pnum,
-                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_left, max_width=40))
                 shapes.append(cv.Text(px, py - 4, pname,
-                    style=ft.TextStyle(size=11, color=text_col),
+                    style=_ps11,
                     alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if not is_ghost:
@@ -2259,10 +2270,10 @@ def show_main(page: ft.Page, cfg: dict):
                 iy = body_bot
                 shapes.append(cv.Line(px, iy, px, py, paint=Paint(color=pcolor, stroke_width=sw)))
                 shapes.append(cv.Text(px + 3, iy - 14, pnum,
-                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_left, max_width=40))
                 shapes.append(cv.Text(px, py + 2, pname,
-                    style=ft.TextStyle(size=11, color=text_col),
+                    style=_ps11,
                     alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if not is_ghost:
@@ -2286,6 +2297,27 @@ def show_main(page: ft.Page, cfg: dict):
 
     # ── Drag (pan) handlers ─────────────────────────────────────────────────
 
+    def _clamp_pin_outside(sx, sy):
+        """Snap (sx, sy) to the nearest grid point strictly outside the body rect."""
+        st = _sym_editor_state
+        bl, br = st["body_l"], st["body_r"]
+        bt, bb = st["body_top"], st["body_bot"]
+        dists = [
+            (bl - sx, "left"),
+            (sx - br, "right"),
+            (bt - sy, "top"),
+            (sy - bb, "bottom"),
+        ]
+        valid = [(d, sd) for d, sd in dists if d > 0]
+        if not valid:
+            valid = [(abs(d), sd) for d, sd in dists]
+        near_side = min(valid)[1]
+        if near_side == "left"  and sx >= bl: sx = bl - _SYM_GRID
+        elif near_side == "right"  and sx <= br: sx = br + _SYM_GRID
+        elif near_side == "top"    and sy >= bt: sy = bt - _SYM_GRID
+        elif near_side == "bottom" and sy <= bb: sy = bb + _SYM_GRID
+        return sx, sy
+
     def _on_sym_pan_start(e):
         tx, ty = e.local_x, e.local_y
         for x1, y1, x2, y2, item4, side, row in _sym_editor_state["hit_areas"]:
@@ -2295,8 +2327,15 @@ def show_main(page: ft.Page, cfg: dict):
                     _sym_body_resize.update({
                         "active": True,
                         "part_num": _sym_step3_part["value"],
-                        "orig_w": st["body_r"] - st["body_l"],
-                        "orig_h": st["body_bot"] - st["body_top"],
+                        "orig_w":       st["body_r"] - st["body_l"],
+                        "orig_h":       st["body_bot"] - st["body_top"],
+                        "orig_body_l":  st["body_l"],
+                        "orig_body_r":  st["body_r"],
+                        "orig_body_bot": st["body_bot"],
+                        "pin_snapshot": {
+                            k: dict(v) for k, v in _sym_pin_layout.items()
+                            if "gx" in v and "gy" in v
+                        },
                         "delta_x": 0.0, "delta_y": 0.0,
                     })
                     return
@@ -2313,11 +2352,33 @@ def show_main(page: ft.Page, cfg: dict):
         if _sym_body_resize["active"]:
             _sym_body_resize["delta_x"] += e.delta_x
             _sym_body_resize["delta_y"] += e.delta_y
+            max_body_w = int((_SYM_CANVAS_W - 2 * _SYM_PIN_STUB) / _SYM_GRID) * _SYM_GRID
             snap_w = int(round(max(_SYM_GRID,
-                _sym_body_resize["orig_w"] + 2 * _sym_body_resize["delta_x"]) / _SYM_GRID) * _SYM_GRID)
+                min(max_body_w,
+                    _sym_body_resize["orig_w"] + 2 * _sym_body_resize["delta_x"])) / _SYM_GRID) * _SYM_GRID)
             snap_h = int(round(max(_SYM_GRID,
                 _sym_body_resize["orig_h"] + _sym_body_resize["delta_y"]) / _SYM_GRID) * _SYM_GRID)
             _sym_body_size[str(_sym_body_resize["part_num"])] = {"w": snap_w, "h": snap_h}
+            # Compute new body edges (mirrors _build_sym_shapes logic)
+            def _snp(v): return int(round(v / _SYM_GRID) * _SYM_GRID)
+            _cx         = _SYM_CANVAS_W / 2
+            new_body_l  = _snp(_cx - snap_w / 2)
+            new_body_r  = new_body_l + snap_w
+            new_body_bot = _snp(_SYM_PIN_STUB + 44) + snap_h
+            dl = new_body_l   - _sym_body_resize["orig_body_l"]
+            dr = new_body_r   - _sym_body_resize["orig_body_r"]
+            db = new_body_bot - _sym_body_resize["orig_body_bot"]
+            # Move pins from snapshot by their respective edge delta
+            for pidx_s, psnap in _sym_body_resize["pin_snapshot"].items():
+                side  = _sym_pin_layout.get(pidx_s, {}).get("side", "left")
+                entry = _sym_pin_layout.setdefault(pidx_s, {})
+                if side == "left":
+                    entry["gx"] = _snp(psnap["gx"] + dl)
+                elif side == "right":
+                    entry["gx"] = _snp(psnap["gx"] + dr)
+                elif side == "bottom":
+                    entry["gy"] = _snp(psnap["gy"] + db)
+                # top: body_top is fixed, no adjustment needed
             shapes, _ = _build_sym_shapes(_sym_body_resize["part_num"])
             if _sym_canvas_ref.current:
                 _sym_canvas_ref.current.shapes = shapes
@@ -2330,6 +2391,7 @@ def show_main(page: ft.Page, cfg: dict):
         # Snap to grid for live preview
         snap_x = int(round(_sym_drag["cur_x"] / _SYM_GRID) * _SYM_GRID)
         snap_y = int(round(_sym_drag["cur_y"] / _SYM_GRID) * _SYM_GRID)
+        snap_x, snap_y = _clamp_pin_outside(snap_x, snap_y)
         shapes, _ = _build_sym_shapes(
             _sym_drag["part_num"],
             drag_idx=_sym_drag["pin_idx"],
@@ -2356,6 +2418,7 @@ def show_main(page: ft.Page, cfg: dict):
         # Final snap
         snap_x = int(round(_sym_drag["cur_x"] / _SYM_GRID) * _SYM_GRID)
         snap_y = int(round(_sym_drag["cur_y"] / _SYM_GRID) * _SYM_GRID)
+        snap_x, snap_y = _clamp_pin_outside(snap_x, snap_y)
 
         st       = _sym_editor_state
         body_l   = st["body_l"]
@@ -2459,12 +2522,17 @@ def show_main(page: ft.Page, cfg: dict):
                         color=ft.colors.GREY_500, text_align=ft.TextAlign.CENTER),
                 ft.Container(
                     content=ft.Row(
-                        [ft.Stack([tap_layer], width=canvas_w, height=canvas_h)],
+                        [ft.Stack(
+                            [tap_layer],
+                            width=canvas_w, height=canvas_h,
+                        )],
                         scroll=ft.ScrollMode.AUTO,
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                     expand=True,
                     alignment=ft.alignment.top_center,
+                    bgcolor="#1e1e2e",
+                    border_radius=6,
                 ),
             ],
             spacing=6,
