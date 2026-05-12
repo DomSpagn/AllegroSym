@@ -1400,7 +1400,7 @@ def show_main(page: ft.Page, cfg: dict):
             _bsz_g   = _sym_body_size.get(str(part_num), {})
             _body_h  = max(_SYM_GRID, int(round(_bsz_g.get("h", _auto_bh) / _SYM_GRID) * _SYM_GRID))
             _body_w  = max(_SYM_GRID, int(round(_bsz_g.get("w", _auto_bw) / _SYM_GRID) * _SYM_GRID))
-            _cx_g    = _SYM_CANVAS_W / 2
+            _cx_g    = _sym_editor_state.get("canvas_w", _SYM_CANVAS_W) / 2
             _body_l  = int(round((_cx_g - _body_w / 2) / _SYM_GRID) * _SYM_GRID)
             _body_r  = _body_l + _body_w
             _body_top = int(round((_SYM_PIN_STUB + 44) / _SYM_GRID) * _SYM_GRID)
@@ -2175,7 +2175,7 @@ def show_main(page: ft.Page, cfg: dict):
         body_w = max(_SYM_GRID, int(round(_bsz.get("w", auto_w) / _SYM_GRID) * _SYM_GRID))
 
         canvas_h = body_h + _SYM_PIN_STUB * 2 + 80
-        canvas_w = _SYM_CANVAS_W
+        canvas_w = _sym_editor_state.get("canvas_w", _SYM_CANVAS_W)
 
         cx       = canvas_w / 2
         body_l   = int(round((cx - body_w / 2) / _SYM_GRID) * _SYM_GRID)
@@ -2423,7 +2423,7 @@ def show_main(page: ft.Page, cfg: dict):
         if _sym_body_resize["active"]:
             _sym_body_resize["delta_x"] += e.delta_x
             _sym_body_resize["delta_y"] += e.delta_y
-            max_body_w = int((_SYM_CANVAS_W - 2 * _SYM_PIN_STUB) / _SYM_GRID) * _SYM_GRID
+            max_body_w = int((_sym_editor_state.get("canvas_w", _SYM_CANVAS_W) - 2 * _SYM_PIN_STUB) / _SYM_GRID) * _SYM_GRID
             snap_w = int(round(max(_SYM_GRID,
                 min(max_body_w,
                     _sym_body_resize["orig_w"] + 2 * _sym_body_resize["delta_x"])) / _SYM_GRID) * _SYM_GRID)
@@ -2432,7 +2432,7 @@ def show_main(page: ft.Page, cfg: dict):
             _sym_body_size[str(_sym_body_resize["part_num"])] = {"w": snap_w, "h": snap_h}
             # Compute new body edges (mirrors _build_sym_shapes logic)
             def _snp(v): return int(round(v / _SYM_GRID) * _SYM_GRID)
-            _cx         = _SYM_CANVAS_W / 2
+            _cx         = _sym_editor_state.get("canvas_w", _SYM_CANVAS_W) / 2
             new_body_l  = _snp(_cx - snap_w / 2)
             new_body_r  = new_body_l + snap_w
             new_body_bot = _snp(_SYM_PIN_STUB + 44) + snap_h
@@ -2549,6 +2549,9 @@ def show_main(page: ft.Page, cfg: dict):
         if _sym_editor_content_ref.current is None:
             return
 
+        # Make canvas fill the available width (page width minus panel padding)
+        _sym_editor_state["canvas_w"] = max(_SYM_CANVAS_W, int(page.width or _SYM_CANVAS_W) - 24)
+
         # Default layout for pins not yet assigned
         for i in range(len(_fp_state["pins"])):
             if str(i) not in _sym_pin_layout:
@@ -2592,13 +2595,14 @@ def show_main(page: ft.Page, cfg: dict):
                 ft.Text(hint, size=11, italic=True,
                         color=ft.colors.GREY_500, text_align=ft.TextAlign.CENTER),
                 ft.Container(
-                    content=ft.Row(
+                    content=ft.Column(
                         [ft.Stack(
                             [tap_layer],
                             width=canvas_w, height=canvas_h,
                         )],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         scroll=ft.ScrollMode.AUTO,
-                        alignment=ft.MainAxisAlignment.CENTER,
+                        expand=True,
                     ),
                     expand=True,
                     alignment=ft.alignment.top_center,
@@ -2608,7 +2612,6 @@ def show_main(page: ft.Page, cfg: dict):
             ],
             spacing=6,
             expand=True,
-            scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
         _sym_editor_content_ref.current.update()
