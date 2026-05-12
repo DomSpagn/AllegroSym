@@ -277,6 +277,7 @@ def show_main(page: ft.Page, cfg: dict):
     _SYM_PAD_Y       = 50
     _SYM_PAD_X       = 50
     _SYM_SIDES       = ["left", "right", "top", "bottom"]
+    _SYM_GRID        = 20   # canvas pixels between grid lines / snap step
     # ── Drag state ──────────────────────────────────────────────────────────
     _sym_canvas_ref  = ft.Ref[cv.Canvas]()
     _sym_pin_order: dict = {}   # {part_str: {side: [idx,...]}}
@@ -2013,8 +2014,12 @@ def show_main(page: ft.Page, cfg: dict):
         def _on_save(_):
             new_side = side_dd.value or "left"
             old_side = cur["side"]
-            _sym_pin_layout[key] = {"side": new_side}
-            if new_side != old_side:
+            if new_side == old_side:
+                # Preserve grid position; only update side key
+                _sym_pin_layout.setdefault(key, {})["side"] = new_side
+            else:
+                # Clear gx/gy so the pin reinitialises at the default position for the new side
+                _sym_pin_layout[key] = {"side": new_side}
                 pkey = str(part_num)
                 if pkey in _sym_pin_order:
                     try:
@@ -2078,7 +2083,7 @@ def show_main(page: ft.Page, cfg: dict):
     # ── Symbol editor: shapes builder (4 sides) ─────────────────────────────
 
     def _build_sym_shapes(part_num: int, drag_idx=None, drag_x=None, drag_y=None):
-        """Return (shapes, canvas_h, canvas_w)."""
+        """Return (shapes, canvas_h) – grid-based pin placement with snap."""
         left_pins   = _get_ordered_pins(part_num, "left")
         right_pins  = _get_ordered_pins(part_num, "right")
         top_pins    = _get_ordered_pins(part_num, "top")
@@ -2103,52 +2108,75 @@ def show_main(page: ft.Page, cfg: dict):
         text_col = ft.colors.WHITE if is_dark else ft.colors.BLACK
         pin_col  = ft.colors.CYAN_300
 
+        # ── Snap helper ──
+        def _snap(v):
+            return int(round(v / _SYM_GRID) * _SYM_GRID)
+
+        # ── Get (or lazily initialise) grid position for a pin ──
+        def _gpos(pin_idx, side, row_or_col):
+            layout = _sym_pin_layout.get(str(pin_idx), {})
+            if "gx" in layout and "gy" in layout:
+                return layout["gx"], layout["gy"]
+            if side == "left":
+                gx = _snap(body_l - _SYM_PIN_STUB)
+                gy = _snap(body_top + _SYM_PAD_Y + row_or_col * _SYM_PIN_SPACING)
+            elif side == "right":
+                gx = _snap(body_r + _SYM_PIN_STUB)
+                gy = _snap(body_top + _SYM_PAD_Y + row_or_col * _SYM_PIN_SPACING)
+            elif side == "top":
+                gx = _snap(body_l + _SYM_PAD_X + row_or_col * _SYM_PIN_SPACING)
+                gy = _snap(body_top - _SYM_PIN_STUB)
+            else:
+                gx = _snap(body_l + _SYM_PAD_X + row_or_col * _SYM_PIN_SPACING)
+                gy = _snap(body_bot + _SYM_PIN_STUB)
+            _sym_pin_layout.setdefault(str(pin_idx), {}).update({"gx": gx, "gy": gy})
+            return gx, gy
+
+        # ── Nearest body-edge side for a given (gx, gy) ──
+        def _pos_side(gx, gy):
+            dists = [
+                (body_l - gx, "left"),
+                (gx - body_r, "right"),
+                (body_top - gy, "top"),
+                (gy - body_bot, "bottom"),
+            ]
+            valid = [(d, sd) for d, sd in dists if d > 0]
+            if not valid:
+                valid = [(abs(d), sd) for d, sd in dists]
+            return min(valid)[1]
+
         shapes: list    = []
         hit_areas: list = []   # [(x1,y1,x2,y2, pin_idx, side, row)]
 
-        # ── Body rect ──
-        shapes.append(cv.Rect(
-            body_l, body_top, body_w, body_h,
-            paint=Paint(color=ft.colors.BLUE_300, stroke_width=2, style=PaintingStyle.STROKE),
-        ))
+        # ── Grid lines ──
+        grid_c = ft.colors.with_opacity(0.12 if is_dark else 0.15, ft.colors.GREY_500)
+        for gx_g in range(0, int(canvas_w) + _SYM_GRID, _SYM_GRID):
+            shapes.append(cv.Line(gx_g, 0, gx_g, int(canvas_h),
+                paint=Paint(color=grid_c, stroke_width=0.5)))
+        for gy_g in range(0, int(canvas_h) + _SYM_GRID, _SYM_GRID):
+            shapes.append(cv.Line(0, gy_g, int(canvas_w), gy_g,
+                paint=Paint(color=grid_c, stroke_width=0.5)))
 
-        # ── Drop-zone highlight during drag ──
+        # ── Body ──
+        shapes.append(cv.Rect(body_l, body_top, body_w, body_h,
+            paint=Paint(
+                color=ft.colors.with_opacity(0.04 if is_dark else 0.06, ft.colors.BLUE_200),
+                style=PaintingStyle.FILL)))
+        shapes.append(cv.Rect(body_l, body_top, body_w, body_h,
+            paint=Paint(color=ft.colors.BLUE_300, stroke_width=2,
+                        style=PaintingStyle.STROKE)))
+
+        # ── Snap-point cursor during drag ──
         if drag_idx is not None and drag_x is not None and drag_y is not None:
-            # Determine target side from pointer proximity to body edges
-            dist_l = abs(drag_x - body_l)
-            dist_r = abs(drag_x - body_r)
-            dist_t = abs(drag_y - body_top)
-            dist_b = abs(drag_y - body_bot)
-            d_side = min(
-                (dist_l, "left"), (dist_r, "right"),
-                (dist_t, "top"),  (dist_b, "bottom"),
-            )[1]
-            side_pins = {"left": left_pins, "right": right_pins,
-                         "top": top_pins, "bottom": bottom_pins}[d_side]
-            n = len(side_pins)
-            if d_side in ("left", "right"):
-                slot_row = round((drag_y - body_top - _SYM_PAD_Y) / _SYM_PIN_SPACING)
-                slot_row = max(0, min(slot_row, max(n - 1, 0)))
-                slot_y   = body_top + _SYM_PAD_Y + slot_row * _SYM_PIN_SPACING
-                slot_x   = (body_l - _SYM_PIN_STUB - 2) if d_side == "left" else body_r
-                shapes.append(cv.Rect(
-                    slot_x, slot_y - 12, _SYM_PIN_STUB + body_w / 2, 24,
-                    paint=Paint(color=ft.colors.with_opacity(0.22, ft.colors.YELLOW_400),
-                                style=PaintingStyle.FILL),
-                ))
-            else:
-                slot_col = round((drag_x - body_l - _SYM_PAD_X) / _SYM_PIN_SPACING)
-                slot_col = max(0, min(slot_col, max(n - 1, 0)))
-                slot_x   = body_l + _SYM_PAD_X + slot_col * _SYM_PIN_SPACING
-                slot_y   = (body_top - _SYM_PIN_STUB - 2) if d_side == "top" else body_bot
-                shapes.append(cv.Rect(
-                    slot_x - 12, slot_y, 24, _SYM_PIN_STUB + body_h / 2,
-                    paint=Paint(color=ft.colors.with_opacity(0.22, ft.colors.YELLOW_400),
-                                style=PaintingStyle.FILL),
-                ))
+            sx, sy = _snap(drag_x), _snap(drag_y)
+            shapes.append(cv.Circle(sx, sy, 10,
+                paint=Paint(color=ft.colors.with_opacity(0.35, ft.colors.YELLOW_400),
+                            style=PaintingStyle.FILL)))
+            shapes.append(cv.Circle(sx, sy, 10,
+                paint=Paint(color=ft.colors.YELLOW_400, stroke_width=2,
+                            style=PaintingStyle.STROKE)))
 
-        # ── Labels ──
-        # Symbol name + REFDES stacked at body centre
+        # ── Centre labels ──
         center_y = body_top + body_h / 2
         shapes.append(cv.Text(cx, center_y - 14,
             f"@{ref_des_dropdown.value or 'REFDES'}?",
@@ -2161,99 +2189,81 @@ def show_main(page: ft.Page, cfg: dict):
             alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
             max_width=body_w - 8))
 
-        # ── Draw helpers ──
-        def _draw_lr_pin(pin_idx, pin, row, side):
-            is_ghost = (pin_idx == drag_idx)
-            if is_ghost and drag_y is not None:
-                py = drag_y
-            else:
-                py = body_top + _SYM_PAD_Y + row * _SYM_PIN_SPACING
-            pcolor = ft.colors.YELLOW_400 if is_ghost else pin_col
-            sw     = 3 if is_ghost else 2
-            neg    = pin.get("negated", False)
-            pname  = ("~" if neg else "") + pin.get("name", "")
-            pnum   = pin.get("number", "")
-            if side == "left":
-                px_o = body_l - _SYM_PIN_STUB
-                px_i = body_l
-                shapes.append(cv.Line(px_o, py, px_i, py, paint=Paint(color=pcolor, stroke_width=sw)))
-                shapes.append(cv.Text(px_i + 3, py - 14, pnum,
+        # ── Unified pin draw (stub from gx/gy tip to body edge) ──
+        def _draw_pin(pin_idx, pin, gx, gy, side, row_or_col):
+            is_ghost  = (pin_idx == drag_idx)
+            px        = _snap(drag_x) if is_ghost and drag_x is not None else gx
+            py        = _snap(drag_y) if is_ghost and drag_y is not None else gy
+            act_side  = _pos_side(px, py) if is_ghost else side
+            pcolor    = ft.colors.YELLOW_400 if is_ghost else pin_col
+            sw        = 3 if is_ghost else 2
+            neg       = pin.get("negated", False)
+            pname     = ("~" if neg else "") + pin.get("name", "")
+            pnum      = pin.get("number", "")
+
+            if act_side == "left":
+                ix = body_l
+                shapes.append(cv.Line(px, py, ix, py, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(ix + 3, py - 14, pnum,
                     style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
                     alignment=ft.alignment.top_left, max_width=40))
-                shapes.append(cv.Text(px_o - 2, py - 15, pname,
+                shapes.append(cv.Text(px - 2, py - 15, pname,
                     style=ft.TextStyle(size=12, color=text_col),
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT,
-                    max_width=int(px_o) - 4))
+                    max_width=max(int(px) - 4, 4)))
                 if not is_ghost:
-                    hit_areas.append((px_o - 8, py - 18, px_i + 8, py + 26, pin_idx, "left", row))
-            else:
-                px_i = body_r
-                px_o = body_r + _SYM_PIN_STUB
-                shapes.append(cv.Line(px_i, py, px_o, py, paint=Paint(color=pcolor, stroke_width=sw)))
-                shapes.append(cv.Text(px_i - 3, py - 14, pnum,
+                    hit_areas.append((px - 8, py - 18, ix + 8, py + 26, pin_idx, side, row_or_col))
+            elif act_side == "right":
+                ix = body_r
+                shapes.append(cv.Line(ix, py, px, py, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(ix - 3, py - 14, pnum,
                     style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT, max_width=40))
-                shapes.append(cv.Text(px_o + 2, py - 15, pname,
+                shapes.append(cv.Text(px + 2, py - 15, pname,
                     style=ft.TextStyle(size=12, color=text_col),
                     alignment=ft.alignment.top_left, text_align=ft.TextAlign.LEFT,
-                    max_width=int(canvas_w - px_o) - 4))
+                    max_width=int(canvas_w - px) - 4))
                 if not is_ghost:
-                    hit_areas.append((px_i - 8, py - 18, px_o + 8, py + 26, pin_idx, "right", row))
-
-        def _draw_tb_pin(pin_idx, pin, col, side):
-            is_ghost = (pin_idx == drag_idx)
-            if is_ghost and drag_x is not None:
-                px = drag_x
-            else:
-                px = body_l + _SYM_PAD_X + col * _SYM_PIN_SPACING
-            pcolor = ft.colors.YELLOW_400 if is_ghost else pin_col
-            sw     = 3 if is_ghost else 2
-            neg    = pin.get("negated", False)
-            pname  = ("~" if neg else "") + pin.get("name", "")
-            pnum   = pin.get("number", "")
-            if side == "top":
-                py_o = body_top - _SYM_PIN_STUB
-                py_i = body_top
-                shapes.append(cv.Line(px, py_o, px, py_i, paint=Paint(color=pcolor, stroke_width=sw)))
-                shapes.append(cv.Text(px + 3, py_i + 2, pnum,
+                    hit_areas.append((ix - 8, py - 18, px + 8, py + 26, pin_idx, side, row_or_col))
+            elif act_side == "top":
+                iy = body_top
+                shapes.append(cv.Line(px, py, px, iy, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px + 3, iy + 2, pnum,
                     style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
                     alignment=ft.alignment.top_left, max_width=40))
-                shapes.append(cv.Text(px, py_o - 4, pname,
+                shapes.append(cv.Text(px, py - 4, pname,
                     style=ft.TextStyle(size=11, color=text_col),
                     alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if not is_ghost:
-                    hit_areas.append((px - 14, py_o - 18, px + 14, py_i + 10, pin_idx, "top", col))
-            else:
-                py_i = body_bot
-                py_o = body_bot + _SYM_PIN_STUB
-                shapes.append(cv.Line(px, py_i, px, py_o, paint=Paint(color=pcolor, stroke_width=sw)))
-                shapes.append(cv.Text(px + 3, py_i - 14, pnum,
+                    hit_areas.append((px - 14, py - 18, px + 14, iy + 10, pin_idx, side, row_or_col))
+            else:  # bottom
+                iy = body_bot
+                shapes.append(cv.Line(px, iy, px, py, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px + 3, iy - 14, pnum,
                     style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
                     alignment=ft.alignment.top_left, max_width=40))
-                shapes.append(cv.Text(px, py_o + 2, pname,
+                shapes.append(cv.Text(px, py + 2, pname,
                     style=ft.TextStyle(size=11, color=text_col),
                     alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if not is_ghost:
-                    hit_areas.append((px - 14, py_i - 10, px + 14, py_o + 18, pin_idx, "bottom", col))
+                    hit_areas.append((px - 14, iy - 10, px + 14, py + 18, pin_idx, side, row_or_col))
 
         for row, (pi, p) in enumerate(left_pins):
-            _draw_lr_pin(pi, p, row, "left")
+            _draw_pin(pi, p, *_gpos(pi, "left",   row), "left",   row)
         for row, (pi, p) in enumerate(right_pins):
-            _draw_lr_pin(pi, p, row, "right")
+            _draw_pin(pi, p, *_gpos(pi, "right",  row), "right",  row)
         for col, (pi, p) in enumerate(top_pins):
-            _draw_tb_pin(pi, p, col, "top")
+            _draw_pin(pi, p, *_gpos(pi, "top",    col), "top",    col)
         for col, (pi, p) in enumerate(bottom_pins):
-            _draw_tb_pin(pi, p, col, "bottom")
+            _draw_pin(pi, p, *_gpos(pi, "bottom", col), "bottom", col)
 
-        _sym_editor_state["hit_areas"] = hit_areas
-        _sym_editor_state["canvas_h"]  = canvas_h
-        _sym_editor_state["canvas_w"]  = canvas_w
-        _sym_editor_state["body_top"]  = body_top
-        _sym_editor_state["body_bot"]  = body_bot
-        _sym_editor_state["body_l"]    = body_l
-        _sym_editor_state["body_r"]    = body_r
+        _sym_editor_state.update({
+            "hit_areas": hit_areas, "canvas_h": canvas_h, "canvas_w": canvas_w,
+            "body_top": body_top,   "body_bot": body_bot,
+            "body_l":   body_l,     "body_r":   body_r,
+        })
         return shapes, canvas_h
 
     # ── Drag (pan) handlers ─────────────────────────────────────────────────
@@ -2276,11 +2286,14 @@ def show_main(page: ft.Page, cfg: dict):
             return
         _sym_drag["cur_x"] += e.delta_x
         _sym_drag["cur_y"] += e.delta_y
+        # Snap to grid for live preview
+        snap_x = int(round(_sym_drag["cur_x"] / _SYM_GRID) * _SYM_GRID)
+        snap_y = int(round(_sym_drag["cur_y"] / _SYM_GRID) * _SYM_GRID)
         shapes, _ = _build_sym_shapes(
             _sym_drag["part_num"],
             drag_idx=_sym_drag["pin_idx"],
-            drag_x=_sym_drag["cur_x"],
-            drag_y=_sym_drag["cur_y"],
+            drag_x=snap_x,
+            drag_y=snap_y,
         )
         if _sym_canvas_ref.current:
             _sym_canvas_ref.current.shapes = shapes
@@ -2294,29 +2307,35 @@ def show_main(page: ft.Page, cfg: dict):
         pin_idx  = _sym_drag["pin_idx"]
         old_side = _sym_drag["side"]
         old_row  = _sym_drag["orig_row"]
-        drop_x   = _sym_drag["cur_x"]
-        drop_y   = _sym_drag["cur_y"]
 
-        st = _sym_editor_state
+        # Final snap
+        snap_x = int(round(_sym_drag["cur_x"] / _SYM_GRID) * _SYM_GRID)
+        snap_y = int(round(_sym_drag["cur_y"] / _SYM_GRID) * _SYM_GRID)
+
+        st       = _sym_editor_state
         body_l   = st["body_l"]
         body_r   = st["body_r"]
         body_top = st["body_top"]
         body_bot = st["body_bot"]
 
-        # Determine new side from drop proximity to body edges
-        dist_l = abs(drop_x - body_l)
-        dist_r = abs(drop_x - body_r)
-        dist_t = abs(drop_y - body_top)
-        dist_b = abs(drop_y - body_bot)
-        new_side = min(
-            (dist_l, "left"), (dist_r, "right"),
-            (dist_t, "top"),  (dist_b, "bottom"),
-        )[1]
+        # Nearest body-edge side for the drop point
+        dists = [
+            (body_l - snap_x, "left"),
+            (snap_x - body_r, "right"),
+            (body_top - snap_y, "top"),
+            (snap_y - body_bot, "bottom"),
+        ]
+        valid = [(d, sd) for d, sd in dists if d > 0]
+        if not valid:
+            valid = [(abs(d), sd) for d, sd in dists]
+        new_side = min(valid)[1]
+
+        # Persist snapped position
+        _sym_pin_layout.setdefault(str(pin_idx), {}).update({"gx": snap_x, "gy": snap_y})
 
         pkey = str(part_num)
-        _sym_pin_order.setdefault(pkey, {s: [] for s in _SYM_SIDES})
+        _sym_pin_order.setdefault(pkey, {sd: [] for sd in _SYM_SIDES})
 
-        # If side changed, move pin between side lists
         if new_side != old_side:
             _sym_pin_layout[str(pin_idx)]["side"] = new_side
             try:
@@ -2327,14 +2346,15 @@ def show_main(page: ft.Page, cfg: dict):
             if pin_idx not in _sym_pin_order[pkey][new_side]:
                 _sym_pin_order[pkey][new_side].append(pin_idx)
         else:
-            # Reorder within same side
+            # Reorder within same side using snap position
             order = _sym_pin_order[pkey].get(old_side, [])
             n     = len(order)
             if n > 1:
-                if new_side in ("left", "right"):
-                    new_row = round((drop_y - body_top - _SYM_PAD_Y) / _SYM_PIN_SPACING)
-                else:
-                    new_row = round((drop_x - body_l - _SYM_PAD_X) / _SYM_PIN_SPACING)
+                new_row = (
+                    round((snap_y - body_top - _SYM_PAD_Y) / _SYM_PIN_SPACING)
+                    if old_side in ("left", "right")
+                    else round((snap_x - body_l - _SYM_PAD_X) / _SYM_PIN_SPACING)
+                )
                 new_row = max(0, min(new_row, n - 1))
                 if old_row != new_row and 0 <= old_row < n:
                     item = order.pop(old_row)
