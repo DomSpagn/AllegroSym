@@ -265,6 +265,32 @@ def show_main(page: ft.Page, cfg: dict):
     _new_sym_step3_summary_ref      = ft.Ref[ft.Column]()
     _new_sym_step3_part_dd_ref      = ft.Ref[ft.Dropdown]()
     generate_sym_btn_ref            = ft.Ref[ft.ElevatedButton]()
+    _sym_editor_content_ref         = ft.Ref[ft.Container]()
+
+    # ── Step-3 symbol layout state ──────────────────────────────────────────
+    _sym_pin_layout: dict = {}   # {str(pin_idx): {"side": "left"|"right"|"top"|"bottom"}}
+    _sym_step3_part: dict = {"value": 1}
+    _SYM_CANVAS_W    = 720
+    _SYM_PIN_SPACING = 60
+    _SYM_PIN_STUB    = 80
+    _SYM_BODY_W      = 280
+    _SYM_PAD_Y       = 50
+    _SYM_PAD_X       = 50
+    _SYM_SIDES       = ["left", "right", "top", "bottom"]
+    # ── Drag state ──────────────────────────────────────────────────────────
+    _sym_canvas_ref  = ft.Ref[cv.Canvas]()
+    _sym_pin_order: dict = {}   # {part_str: {side: [idx,...]}}
+    _sym_editor_state: dict = {
+        "hit_areas": [],   # [(x1,y1,x2,y2, pin_idx, side, row)]
+        "canvas_h": 400, "canvas_w": 720,
+        "body_top": 44, "body_bot": 300, "body_l": 220, "body_r": 500,
+    }
+    _sym_drag: dict = {
+        "active": False, "pin_idx": None, "side": None,
+        "orig_row": -1, "cur_x": 0.0, "cur_y": 0.0, "part_num": 1,
+    }
+    _sym_tap_pos: dict = {"x": 0.0, "y": 0.0}
+
     def update_symbol_buttons():
         pkg_ok = len(packages) > 0
         sym_ok = len(symbols) > 0
@@ -1322,7 +1348,90 @@ def show_main(page: ft.Page, cfg: dict):
             os.makedirs(sym_part_dir, exist_ok=True)
             with open(os.path.join(sym_part_dir, "master.tag"), "w", encoding="utf-8") as f:
                 f.write("symbol.css")
-            open(os.path.join(sym_part_dir, "symbol.css"), "a").close()
+            # Build symbol.css (Allegro DEHDL format)
+            part_pins = [
+                (i, p) for i, p in enumerate(pins)
+                if str(p.get("part_number", "1")) == str(part_num)
+            ]
+            left_pins_s  = [(i, p) for i, p in part_pins
+                            if _sym_pin_layout.get(str(i), {}).get("side", "left") == "left"]
+            right_pins_s  = [(i, p) for i, p in part_pins
+                            if _sym_pin_layout.get(str(i), {}).get("side", "left") == "right"]
+            top_pins_s    = [(i, p) for i, p in part_pins
+                            if _sym_pin_layout.get(str(i), {}).get("side", "left") == "top"]
+            bottom_pins_s = [(i, p) for i, p in part_pins
+                            if _sym_pin_layout.get(str(i), {}).get("side", "left") == "bottom"]
+
+            # Use ordered positions from _sym_pin_order if available
+            def _ordered(lst, side):
+                pkey = str(part_num)
+                if pkey in _sym_pin_order and side in _sym_pin_order[pkey]:
+                    order   = _sym_pin_order[pkey][side]
+                    pin_map = {i: p for i, p in lst}
+                    return [(i, pin_map[i]) for i in order if i in pin_map]
+                return lst
+
+            left_pins_s   = _ordered(left_pins_s,   "left")
+            right_pins_s  = _ordered(right_pins_s,  "right")
+            top_pins_s    = _ordered(top_pins_s,    "top")
+            bottom_pins_s = _ordered(bottom_pins_s, "bottom")
+
+            _n_lr = max(len(left_pins_s), len(right_pins_s), 1)
+            _n_tb = max(len(top_pins_s),  len(bottom_pins_s), 1)
+            _bhh  = _n_lr * 100 // 2 + 50   # half body height in mils
+            _bhw  = _n_tb * 100 // 2 + 50   # half body width in mils
+
+            def _pym(row, bhh=_bhh):   # y for left/right pins (top → big y)
+                return bhh - 50 - row * 100
+
+            def _pxm(col, bhw=_bhw):   # x for top/bottom pins (left → small x)
+                return -bhw + 50 + col * 100
+
+            css_lines = [
+                "FILE_TYPE=SCHEMATIC_SYMBOL ;\n",
+                f"PRIMITIVE '{name}','{primitive_id}' ;\n",
+                " DEFINITION\n",
+                "  PIN\n",
+            ]
+
+            def _pin_lines(pin_idx, pin, xcoord, ycoord, rotation):
+                pname   = pin.get("name", "")
+                pnum    = pin.get("number", "")
+                neg     = pin.get("negated", False)
+                vec     = ["0"] * num_parts
+                if 0 <= part_num - 1 < num_parts:
+                    vec[part_num - 1] = pnum or "0"
+                return [
+                    f"   'N{pnum}_{pname}' :\n",
+                    f"    XCOORD='{xcoord}' ;\n",
+                    f"    YCOORD='{ycoord}' ;\n",
+                    f"    ROTATION='{rotation}' ;\n",
+                    f"    PIN_NUMBER='({','.join(vec)})' ;\n",
+                    f"    NEGATED='{'TRUE' if neg else 'FALSE'}' ;\n",
+                ]
+
+            for row, (pin_idx, pin) in enumerate(left_pins_s):
+                css_lines += _pin_lines(pin_idx, pin, -600, _pym(row), 0)
+            for row, (pin_idx, pin) in enumerate(right_pins_s):
+                css_lines += _pin_lines(pin_idx, pin,  600, _pym(row), 180)
+            for col, (pin_idx, pin) in enumerate(top_pins_s):
+                css_lines += _pin_lines(pin_idx, pin, _pxm(col), 600, 270)
+            for col, (pin_idx, pin) in enumerate(bottom_pins_s):
+                css_lines += _pin_lines(pin_idx, pin, _pxm(col), -600, 90)
+
+            css_lines += [
+                "  END_PIN ;\n",
+                "  BODY\n",
+                "   C_PATH='/LOGIC.1.1.1P' ;\n",
+                f"   C_VIEW='SYM_{part_num}' ;\n",
+                "  END_BODY ;\n",
+                " END_DEFINITION ;\n",
+                "END_PRIMITIVE ;\n",
+                "END.\n",
+            ]
+
+            with open(os.path.join(sym_part_dir, "symbol.css"), "w", encoding="utf-8") as f:
+                f.writelines(css_lines)
 
         entry = {
             "name":    name,
@@ -1881,8 +1990,434 @@ def show_main(page: ft.Page, cfg: dict):
         ),
     )
 
+    # ── Symbol editor helpers (Step 3) ─────────────────────────────────────
+
+    def _show_sym_pin_layout_dialog(pin_idx: int, part_num: int):
+        """Dialog to change the side (left/right/top/bottom) of a pin."""
+        pin = _fp_state["pins"][pin_idx]
+        key = str(pin_idx)
+        cur = _sym_pin_layout.get(key, {"side": "left"})
+
+        side_dd = ft.Dropdown(
+            label=s.get("pin_side", "Side"),
+            width=220,
+            value=cur["side"],
+            options=[
+                ft.dropdown.Option("left",   s.get("left",   "Left")),
+                ft.dropdown.Option("right",  s.get("right",  "Right")),
+                ft.dropdown.Option("top",    s.get("top",    "Top")),
+                ft.dropdown.Option("bottom", s.get("bottom", "Bottom")),
+            ],
+        )
+
+        def _on_save(_):
+            new_side = side_dd.value or "left"
+            old_side = cur["side"]
+            _sym_pin_layout[key] = {"side": new_side}
+            if new_side != old_side:
+                pkey = str(part_num)
+                if pkey in _sym_pin_order:
+                    try:
+                        _sym_pin_order[pkey][old_side].remove(pin_idx)
+                    except (ValueError, KeyError):
+                        pass
+                    _sym_pin_order[pkey].setdefault(new_side, [])
+                    if pin_idx not in _sym_pin_order[pkey][new_side]:
+                        _sym_pin_order[pkey][new_side].append(pin_idx)
+            page.close(dlg)
+            _refresh_sym_editor(part_num)
+
+        pin_label = f"Pin {pin.get('number', pin_idx + 1)}"
+        if pin.get("name"):
+            pin_label += f"  –  {pin['name']}"
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(pin_label, weight=ft.FontWeight.BOLD),
+            content=side_dd,
+            actions=[
+                ft.TextButton(s.get("close", "Cancel"), on_click=lambda _: page.close(dlg)),
+                ft.ElevatedButton(s.get("save", "Save"), on_click=_on_save),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.open(dlg)
+
+    # ── Symbol editor: order helpers ────────────────────────────────────────
+
+    def _init_sym_pin_order(part_num: int):
+        """Ensure _sym_pin_order[part] has all 4 sides consistent with current pin data."""
+        key = str(part_num)
+        if key not in _sym_pin_order:
+            _sym_pin_order[key] = {s: [] for s in _SYM_SIDES}
+        for side in _SYM_SIDES:
+            _sym_pin_order[key].setdefault(side, [])
+            current_ids = [
+                i for i, p in enumerate(_fp_state["pins"])
+                if str(p.get("part_number", "1")) == str(part_num)
+                and _sym_pin_layout.get(str(i), {}).get("side", "left") == side
+            ]
+            stored = _sym_pin_order[key][side]
+            current_set = set(current_ids)
+            new_order = [i for i in stored if i in current_set]
+            for i in current_ids:
+                if i not in set(new_order):
+                    new_order.append(i)
+            _sym_pin_order[key][side] = new_order
+
+    def _get_ordered_pins(part_num: int, side: str):
+        """Return [(pin_idx, pin)] in the stored drag order for part+side."""
+        _init_sym_pin_order(part_num)
+        order = _sym_pin_order[str(part_num)][side]
+        pin_map = {
+            i: p for i, p in enumerate(_fp_state["pins"])
+            if str(p.get("part_number", "1")) == str(part_num)
+            and _sym_pin_layout.get(str(i), {}).get("side", "left") == side
+        }
+        return [(i, pin_map[i]) for i in order if i in pin_map]
+
+    # ── Symbol editor: shapes builder (4 sides) ─────────────────────────────
+
+    def _build_sym_shapes(part_num: int, drag_idx=None, drag_x=None, drag_y=None):
+        """Return (shapes, canvas_h, canvas_w)."""
+        left_pins   = _get_ordered_pins(part_num, "left")
+        right_pins  = _get_ordered_pins(part_num, "right")
+        top_pins    = _get_ordered_pins(part_num, "top")
+        bottom_pins = _get_ordered_pins(part_num, "bottom")
+
+        n_lr  = max(len(left_pins), len(right_pins), 1)
+        n_tb  = max(len(top_pins),  len(bottom_pins), 1)
+
+        body_h = n_lr * _SYM_PIN_SPACING + 2 * _SYM_PAD_Y
+        body_w = max(_SYM_BODY_W, n_tb * _SYM_PIN_SPACING + 2 * _SYM_PAD_X)
+
+        canvas_h = body_h + _SYM_PIN_STUB * 2 + 80
+        canvas_w = _SYM_CANVAS_W
+
+        cx       = canvas_w / 2
+        body_l   = cx - body_w / 2
+        body_r   = cx + body_w / 2
+        body_top = _SYM_PIN_STUB + 44
+        body_bot = body_top + body_h
+
+        is_dark  = page.theme_mode == ft.ThemeMode.DARK
+        text_col = ft.colors.WHITE if is_dark else ft.colors.BLACK
+        pin_col  = ft.colors.CYAN_300
+
+        shapes: list    = []
+        hit_areas: list = []   # [(x1,y1,x2,y2, pin_idx, side, row)]
+
+        # ── Body rect ──
+        shapes.append(cv.Rect(
+            body_l, body_top, body_w, body_h,
+            paint=Paint(color=ft.colors.BLUE_300, stroke_width=2, style=PaintingStyle.STROKE),
+        ))
+
+        # ── Drop-zone highlight during drag ──
+        if drag_idx is not None and drag_x is not None and drag_y is not None:
+            # Determine target side from pointer proximity to body edges
+            dist_l = abs(drag_x - body_l)
+            dist_r = abs(drag_x - body_r)
+            dist_t = abs(drag_y - body_top)
+            dist_b = abs(drag_y - body_bot)
+            d_side = min(
+                (dist_l, "left"), (dist_r, "right"),
+                (dist_t, "top"),  (dist_b, "bottom"),
+            )[1]
+            side_pins = {"left": left_pins, "right": right_pins,
+                         "top": top_pins, "bottom": bottom_pins}[d_side]
+            n = len(side_pins)
+            if d_side in ("left", "right"):
+                slot_row = round((drag_y - body_top - _SYM_PAD_Y) / _SYM_PIN_SPACING)
+                slot_row = max(0, min(slot_row, max(n - 1, 0)))
+                slot_y   = body_top + _SYM_PAD_Y + slot_row * _SYM_PIN_SPACING
+                slot_x   = (body_l - _SYM_PIN_STUB - 2) if d_side == "left" else body_r
+                shapes.append(cv.Rect(
+                    slot_x, slot_y - 12, _SYM_PIN_STUB + body_w / 2, 24,
+                    paint=Paint(color=ft.colors.with_opacity(0.22, ft.colors.YELLOW_400),
+                                style=PaintingStyle.FILL),
+                ))
+            else:
+                slot_col = round((drag_x - body_l - _SYM_PAD_X) / _SYM_PIN_SPACING)
+                slot_col = max(0, min(slot_col, max(n - 1, 0)))
+                slot_x   = body_l + _SYM_PAD_X + slot_col * _SYM_PIN_SPACING
+                slot_y   = (body_top - _SYM_PIN_STUB - 2) if d_side == "top" else body_bot
+                shapes.append(cv.Rect(
+                    slot_x - 12, slot_y, 24, _SYM_PIN_STUB + body_h / 2,
+                    paint=Paint(color=ft.colors.with_opacity(0.22, ft.colors.YELLOW_400),
+                                style=PaintingStyle.FILL),
+                ))
+
+        # ── Labels ──
+        # Symbol name + REFDES stacked at body centre
+        center_y = body_top + body_h / 2
+        shapes.append(cv.Text(cx, center_y - 14,
+            f"@{ref_des_dropdown.value or 'REFDES'}?",
+            style=ft.TextStyle(size=12, color=ft.colors.ORANGE_300, weight=ft.FontWeight.BOLD),
+            alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
+            max_width=body_w - 8))
+        shapes.append(cv.Text(cx, center_y + 2,
+            sym_name_field.value.strip() or "Symbol",
+            style=ft.TextStyle(size=14, color=ft.colors.ORANGE_300, weight=ft.FontWeight.BOLD),
+            alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
+            max_width=body_w - 8))
+
+        # ── Draw helpers ──
+        def _draw_lr_pin(pin_idx, pin, row, side):
+            is_ghost = (pin_idx == drag_idx)
+            if is_ghost and drag_y is not None:
+                py = drag_y
+            else:
+                py = body_top + _SYM_PAD_Y + row * _SYM_PIN_SPACING
+            pcolor = ft.colors.YELLOW_400 if is_ghost else pin_col
+            sw     = 3 if is_ghost else 2
+            neg    = pin.get("negated", False)
+            pname  = ("~" if neg else "") + pin.get("name", "")
+            pnum   = pin.get("number", "")
+            if side == "left":
+                px_o = body_l - _SYM_PIN_STUB
+                px_i = body_l
+                shapes.append(cv.Line(px_o, py, px_i, py, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px_i + 3, py - 14, pnum,
+                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    alignment=ft.alignment.top_left, max_width=40))
+                shapes.append(cv.Text(px_o - 2, py - 15, pname,
+                    style=ft.TextStyle(size=12, color=text_col),
+                    alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT,
+                    max_width=int(px_o) - 4))
+                if not is_ghost:
+                    hit_areas.append((px_o - 8, py - 18, px_i + 8, py + 26, pin_idx, "left", row))
+            else:
+                px_i = body_r
+                px_o = body_r + _SYM_PIN_STUB
+                shapes.append(cv.Line(px_i, py, px_o, py, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px_i - 3, py - 14, pnum,
+                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT, max_width=40))
+                shapes.append(cv.Text(px_o + 2, py - 15, pname,
+                    style=ft.TextStyle(size=12, color=text_col),
+                    alignment=ft.alignment.top_left, text_align=ft.TextAlign.LEFT,
+                    max_width=int(canvas_w - px_o) - 4))
+                if not is_ghost:
+                    hit_areas.append((px_i - 8, py - 18, px_o + 8, py + 26, pin_idx, "right", row))
+
+        def _draw_tb_pin(pin_idx, pin, col, side):
+            is_ghost = (pin_idx == drag_idx)
+            if is_ghost and drag_x is not None:
+                px = drag_x
+            else:
+                px = body_l + _SYM_PAD_X + col * _SYM_PIN_SPACING
+            pcolor = ft.colors.YELLOW_400 if is_ghost else pin_col
+            sw     = 3 if is_ghost else 2
+            neg    = pin.get("negated", False)
+            pname  = ("~" if neg else "") + pin.get("name", "")
+            pnum   = pin.get("number", "")
+            if side == "top":
+                py_o = body_top - _SYM_PIN_STUB
+                py_i = body_top
+                shapes.append(cv.Line(px, py_o, px, py_i, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px + 3, py_i + 2, pnum,
+                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    alignment=ft.alignment.top_left, max_width=40))
+                shapes.append(cv.Text(px, py_o - 4, pname,
+                    style=ft.TextStyle(size=11, color=text_col),
+                    alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
+                    max_width=_SYM_PIN_SPACING - 4))
+                if not is_ghost:
+                    hit_areas.append((px - 14, py_o - 18, px + 14, py_i + 10, pin_idx, "top", col))
+            else:
+                py_i = body_bot
+                py_o = body_bot + _SYM_PIN_STUB
+                shapes.append(cv.Line(px, py_i, px, py_o, paint=Paint(color=pcolor, stroke_width=sw)))
+                shapes.append(cv.Text(px + 3, py_i - 14, pnum,
+                    style=ft.TextStyle(size=10, color=ft.colors.GREY_400),
+                    alignment=ft.alignment.top_left, max_width=40))
+                shapes.append(cv.Text(px, py_o + 2, pname,
+                    style=ft.TextStyle(size=11, color=text_col),
+                    alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
+                    max_width=_SYM_PIN_SPACING - 4))
+                if not is_ghost:
+                    hit_areas.append((px - 14, py_i - 10, px + 14, py_o + 18, pin_idx, "bottom", col))
+
+        for row, (pi, p) in enumerate(left_pins):
+            _draw_lr_pin(pi, p, row, "left")
+        for row, (pi, p) in enumerate(right_pins):
+            _draw_lr_pin(pi, p, row, "right")
+        for col, (pi, p) in enumerate(top_pins):
+            _draw_tb_pin(pi, p, col, "top")
+        for col, (pi, p) in enumerate(bottom_pins):
+            _draw_tb_pin(pi, p, col, "bottom")
+
+        _sym_editor_state["hit_areas"] = hit_areas
+        _sym_editor_state["canvas_h"]  = canvas_h
+        _sym_editor_state["canvas_w"]  = canvas_w
+        _sym_editor_state["body_top"]  = body_top
+        _sym_editor_state["body_bot"]  = body_bot
+        _sym_editor_state["body_l"]    = body_l
+        _sym_editor_state["body_r"]    = body_r
+        return shapes, canvas_h
+
+    # ── Drag (pan) handlers ─────────────────────────────────────────────────
+
+    def _on_sym_pan_start(e):
+        tx, ty = e.local_x, e.local_y
+        for x1, y1, x2, y2, pidx, side, row in _sym_editor_state["hit_areas"]:
+            if x1 <= tx <= x2 and y1 <= ty <= y2:
+                _sym_drag["active"]   = True
+                _sym_drag["pin_idx"]  = pidx
+                _sym_drag["side"]     = side
+                _sym_drag["orig_row"] = row
+                _sym_drag["cur_x"]    = tx
+                _sym_drag["cur_y"]    = ty
+                _sym_drag["part_num"] = _sym_step3_part["value"]
+                return
+
+    def _on_sym_pan_update(e):
+        if not _sym_drag["active"]:
+            return
+        _sym_drag["cur_x"] += e.delta_x
+        _sym_drag["cur_y"] += e.delta_y
+        shapes, _ = _build_sym_shapes(
+            _sym_drag["part_num"],
+            drag_idx=_sym_drag["pin_idx"],
+            drag_x=_sym_drag["cur_x"],
+            drag_y=_sym_drag["cur_y"],
+        )
+        if _sym_canvas_ref.current:
+            _sym_canvas_ref.current.shapes = shapes
+            _sym_canvas_ref.current.update()
+
+    def _on_sym_pan_end(e):
+        if not _sym_drag["active"]:
+            return
+        _sym_drag["active"] = False
+        part_num = _sym_drag["part_num"]
+        pin_idx  = _sym_drag["pin_idx"]
+        old_side = _sym_drag["side"]
+        old_row  = _sym_drag["orig_row"]
+        drop_x   = _sym_drag["cur_x"]
+        drop_y   = _sym_drag["cur_y"]
+
+        st = _sym_editor_state
+        body_l   = st["body_l"]
+        body_r   = st["body_r"]
+        body_top = st["body_top"]
+        body_bot = st["body_bot"]
+
+        # Determine new side from drop proximity to body edges
+        dist_l = abs(drop_x - body_l)
+        dist_r = abs(drop_x - body_r)
+        dist_t = abs(drop_y - body_top)
+        dist_b = abs(drop_y - body_bot)
+        new_side = min(
+            (dist_l, "left"), (dist_r, "right"),
+            (dist_t, "top"),  (dist_b, "bottom"),
+        )[1]
+
+        pkey = str(part_num)
+        _sym_pin_order.setdefault(pkey, {s: [] for s in _SYM_SIDES})
+
+        # If side changed, move pin between side lists
+        if new_side != old_side:
+            _sym_pin_layout[str(pin_idx)]["side"] = new_side
+            try:
+                _sym_pin_order[pkey][old_side].remove(pin_idx)
+            except (ValueError, KeyError):
+                pass
+            _sym_pin_order[pkey].setdefault(new_side, [])
+            if pin_idx not in _sym_pin_order[pkey][new_side]:
+                _sym_pin_order[pkey][new_side].append(pin_idx)
+        else:
+            # Reorder within same side
+            order = _sym_pin_order[pkey].get(old_side, [])
+            n     = len(order)
+            if n > 1:
+                if new_side in ("left", "right"):
+                    new_row = round((drop_y - body_top - _SYM_PAD_Y) / _SYM_PIN_SPACING)
+                else:
+                    new_row = round((drop_x - body_l - _SYM_PAD_X) / _SYM_PIN_SPACING)
+                new_row = max(0, min(new_row, n - 1))
+                if old_row != new_row and 0 <= old_row < n:
+                    item = order.pop(old_row)
+                    order.insert(new_row, item)
+
+        _sym_drag["pin_idx"] = None
+        _refresh_sym_editor(part_num)
+
+    # ── Symbol editor: full rebuild ─────────────────────────────────────────
+
+    def _refresh_sym_editor(part_num: int):
+        """(Re)build the graphical symbol editor canvas for *part_num* and inject it."""
+        if _sym_editor_content_ref.current is None:
+            return
+
+        # Default layout for pins not yet assigned
+        for i in range(len(_fp_state["pins"])):
+            if str(i) not in _sym_pin_layout:
+                _sym_pin_layout[str(i)] = {"side": "left"}
+
+        shapes, canvas_h = _build_sym_shapes(part_num)
+        canvas_w = _sym_editor_state["canvas_w"]
+
+        sym_canvas = cv.Canvas(
+            ref=_sym_canvas_ref,
+            shapes=shapes,
+            width=canvas_w,
+            height=canvas_h,
+        )
+
+        def _on_tap_down(e):
+            _sym_tap_pos["x"] = e.local_x
+            _sym_tap_pos["y"] = e.local_y
+
+        def _on_tap(e):
+            if _sym_drag["active"]:
+                return
+            tx, ty = _sym_tap_pos["x"], _sym_tap_pos["y"]
+            for x1, y1, x2, y2, pidx, _s, _r in _sym_editor_state["hit_areas"]:
+                if x1 <= tx <= x2 and y1 <= ty <= y2:
+                    _show_sym_pin_layout_dialog(pidx, part_num)
+                    return
+
+        tap_layer = ft.GestureDetector(
+            on_tap_down=_on_tap_down,
+            on_tap=_on_tap,
+            on_pan_start=_on_sym_pan_start,
+            on_pan_update=_on_sym_pan_update,
+            on_pan_end=_on_sym_pan_end,
+            content=sym_canvas,
+        )
+
+        hint = s.get("drag_pin_hint", "Click a pin to change side  •  Drag a pin to reorder or move to another side")
+        _sym_editor_content_ref.current.content = ft.Column(
+            [
+                ft.Text(hint, size=11, italic=True,
+                        color=ft.colors.GREY_500, text_align=ft.TextAlign.CENTER),
+                ft.Container(
+                    content=ft.Row(
+                        [ft.Stack([tap_layer], width=canvas_w, height=canvas_h)],
+                        scroll=ft.ScrollMode.AUTO,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    expand=True,
+                    alignment=ft.alignment.top_center,
+                ),
+            ],
+            spacing=6,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        _sym_editor_content_ref.current.update()
+
+    def _on_step3_part_change(e):
+        part_num = int(e.control.value or "1")
+        _sym_step3_part["value"] = part_num
+        _refresh_sym_editor(part_num)
+
+    # ── End symbol editor helpers ───────────────────────────────────────────
+
     def _show_step3(e):
-        """Show the New Symbol 3/3 full-screen view with a summary."""
+        """Show the New Symbol 3/3 full-screen view with symbol editor."""
         # Build part selector options
         parts_str = sym_parts_field.value.strip()
         num_parts = int(parts_str) if parts_str.isdigit() and int(parts_str) > 0 else 1
@@ -1893,9 +2428,11 @@ def show_main(page: ft.Page, cfg: dict):
             _new_sym_step3_part_dd_ref.current.value = "1"
         if _new_sym_step3_title_ref.current:
             _new_sym_step3_title_ref.current.value = s.get("new_symbol", "New Symbol") + " 3/3"
+        _sym_step3_part["value"] = 1
         new_sym_panel.visible = False
         _new_sym_step3_panel.visible = True
         page.update()
+        _refresh_sym_editor(1)
 
     def _go_back_to_step2(e):
         _new_sym_step3_panel.visible = False
@@ -2049,7 +2586,15 @@ def show_main(page: ft.Page, cfg: dict):
                         width=240,
                         options=[ft.dropdown.Option("1")],
                         value="1",
+                        on_change=_on_step3_part_change,
                     ),
+                ),
+                # ── Graphical symbol editor canvas ──
+                ft.Container(
+                    ref=_sym_editor_content_ref,
+                    expand=True,
+                    alignment=ft.alignment.top_center,
+                    content=None,
                 ),
                 ft.Container(
                     alignment=ft.alignment.center,
