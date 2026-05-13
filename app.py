@@ -1530,7 +1530,7 @@ def show_main(page: ft.Page, cfg: dict):
                             # PIN_NAME near the dot
                             _pnm_x, _pnm_y, _pnm_just = _x1, _y1 + 10, 0
                         cx_lines.append(
-                            f'C {_x1} {_y1} "{_clabel}" {_cl_x} {_cl_y} {_cl_rot} 1 31 {_cl_f} {_cl_just}\n'
+                            f'C {_x1} {_y1} "{_clabel}" {_cl_x} {_cl_y} {_cl_rot} 1 48 {_cl_f} {_cl_just}\n'
                             f'X "$PN" "?" {_pn_x} {_pn_y} 0.00 0.00 31 0 0 {_pn_just} 0 0 1 0 74\n'
                         )
 
