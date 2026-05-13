@@ -1444,11 +1444,11 @@ def show_main(page: ft.Page, cfg: dict):
             _STUB_MIL    = _DEHDL_MIL_PER_STEP         # stub length in mils
             # Overbar (Active Low) metrics — grid: Size=0.002in × Multiple=4 → 1 step = 8 mils
             _OB_STEP     = 8                                    # 1 Allegro grid step in mils
-            _OB_CHAR_W   = 3 * _OB_STEP                        # char width   = 3 steps = 24 mils
-            _OB_CHAR_SP  = 2 * _OB_STEP                        # char spacing = 2 steps = 16 mils
+            _OB_CHAR_W   = 7 * _OB_STEP                        # per-char slope = 7 steps = 56 mils  (calibrated)
+            _OB_CHAR_OFF = 3 * _OB_STEP                        # fixed offset   = 3 steps = 24 mils  tw=(7N-3)×8
             _OB_T_HEIGHT = 6 * _OB_STEP                        # T text height = 6 steps = 48 mils (= T size field)
-            _OB_GAP      = 2 * _OB_STEP                        # overbar gap   = 2 steps = 16 mils above text top
-            # bbox_width = N×(char_w+spacing) = N×40; overbar = full bbox width; gap = 2 steps above text top
+            _OB_GAP      = 1 * _OB_STEP                        # overbar gap   = 1 step  =  8 mils above text top
+            # overbar width = (7N-3)×8 mils  — cal: N=1→32, N=3→144, N=5→256, N=6→312, N=7→368
             t_lines  = []
             cx_lines = []
             for _pins_list, _side in (
@@ -1499,7 +1499,7 @@ def show_main(page: ft.Page, cfg: dict):
                         # Overbar (Active Low): full width = N×40mils; pos = baseline + T_height + 2-step gap
                         if _negated:
                             _ob_n  = len(_pname)
-                            _ob_tw = _ob_n * (_OB_CHAR_W + _OB_CHAR_SP)             # N×40 mils full width
+                            _ob_tw = max(_ob_n * _OB_CHAR_W - _OB_CHAR_OFF, _OB_STEP)  # (7N-3)×8 mils
                             if _side in ("left", "right"):
                                 # overbar = baseline + T_height(48) + 2-step gap(16)
                                 _ob_y = _ty_a + _OB_T_HEIGHT + _OB_GAP
@@ -2375,11 +2375,26 @@ def show_main(page: ft.Page, cfg: dict):
             pname     = pin.get("name", "")
             pnum      = pin.get("number", "")
             _ps12     = ft.TextStyle(size=12, color=text_col)
-            _ps11     = ft.TextStyle(size=11, color=text_col)
             _ob_paint = Paint(color=text_col, stroke_width=1.5)
-            # Estimated char widths for overbar length
-            _cw12 = 8   # ~px per char at size 12
-            _cw11 = 7   # ~px per char at size 11
+            # ── Per-character width lookup — proportional font, size 12 ──────────
+            # Tune each uppercase letter individually; default fallback = 7 px
+            _CW12 = {
+                # ── uppercase ──────────────────────────────────────────────────
+                'A': 8, 'B': 7, 'C': 7, 'D': 8, 'E': 7, 'F': 6, 'G': 8,
+                'H': 8, 'I': 4, 'J': 5, 'K': 8, 'L': 6, 'M':11, 'N': 9,
+                'O': 9, 'P': 7, 'Q': 9, 'R': 7, 'S': 6, 'T': 6, 'U': 6,
+                'V': 8, 'W':11, 'X': 7, 'Y': 7, 'Z': 7,
+                # ── lowercase ──────────────────────────────────────────────────
+                'a': 6, 'b': 7, 'c': 6, 'd': 7, 'e': 6, 'f': 4, 'g': 7,
+                'h': 7, 'i': 3, 'j': 3, 'k': 6, 'l': 3, 'm':10, 'n': 7,
+                'o': 7, 'p': 7, 'q': 7, 'r': 4, 's': 5, 't': 4, 'u': 7,
+                'v': 6, 'w': 9, 'x': 6, 'y': 6, 'z': 5,
+                # ── digits & symbols ───────────────────────────────────────────
+                '0': 6, '1': 6, '2': 6, '3': 6, '4': 6, '5': 6, '6': 6,
+                '7': 6, '8': 6, '9': 6,
+                '_': 5, '-': 5, '.': 3, ',': 3, ':': 3, ';': 3, '/': 5,
+            }
+            def _tw12(s): return sum(_CW12.get(c, 7) for c in s)
 
             if act_side == "left":
                 ix = body_l
@@ -2392,7 +2407,7 @@ def show_main(page: ft.Page, cfg: dict):
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT,
                     max_width=max(int(px) - 4, 4)))
                 if neg and pname:
-                    _tw = len(pname) * _cw12
+                    _tw = _tw12(pname)
                     shapes.append(cv.Line(px - 2 - _tw, py - 16, px - 2, py - 16, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((px - 8, py - 18, ix + 8, py + 26, pin_idx, side, row_or_col))
@@ -2407,7 +2422,7 @@ def show_main(page: ft.Page, cfg: dict):
                     alignment=ft.alignment.top_left, text_align=ft.TextAlign.LEFT,
                     max_width=int(canvas_w - px) - 4))
                 if neg and pname:
-                    _tw = len(pname) * _cw12
+                    _tw = _tw12(pname)
                     shapes.append(cv.Line(px + 2, py - 16, px + 2 + _tw, py - 16, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((ix - 8, py - 18, px + 8, py + 26, pin_idx, side, row_or_col))
@@ -2418,11 +2433,11 @@ def show_main(page: ft.Page, cfg: dict):
                     style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_left, max_width=40))
                 shapes.append(cv.Text(px, py - 4, pname,
-                    style=_ps11,
+                    style=_ps12,
                     alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if neg and pname:
-                    _tw = len(pname) * _cw11
+                    _tw = _tw12(pname)
                     _oy = py - 19   # 1px above text top (bottom_center at py-4, height~14px)
                     shapes.append(cv.Line(px - _tw // 2, _oy, px + _tw // 2, _oy, paint=_ob_paint))
                 if not is_ghost:
@@ -2434,11 +2449,11 @@ def show_main(page: ft.Page, cfg: dict):
                     style=ft.TextStyle(size=10, color=pnum_col),
                     alignment=ft.alignment.top_left, max_width=40))
                 shapes.append(cv.Text(px, py + 2, pname,
-                    style=_ps11,
+                    style=_ps12,
                     alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
                 if neg and pname:
-                    _tw = len(pname) * _cw11
+                    _tw = _tw12(pname)
                     shapes.append(cv.Line(px - _tw // 2, py + 1, px + _tw // 2, py + 1, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((px - 14, iy - 10, px + 14, py + 18, pin_idx, side, row_or_col))
