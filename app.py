@@ -2378,8 +2378,8 @@ def show_main(page: ft.Page, cfg: dict):
             _ps11     = ft.TextStyle(size=11, color=text_col)
             _ob_paint = Paint(color=text_col, stroke_width=1.5)
             # Estimated char widths for overbar length
-            _cw12 = 7   # ~px per char at size 12
-            _cw11 = 6   # ~px per char at size 11
+            _cw12 = 8   # ~px per char at size 12
+            _cw11 = 7   # ~px per char at size 11
 
             if act_side == "left":
                 ix = body_l
