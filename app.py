@@ -1442,6 +1442,13 @@ def show_main(page: ft.Page, cfg: dict):
             # Pin stubs + T text for pin name (inside body, centered on stub)
             _TEXT_OFFSET = _DEHDL_MIL_PER_STEP // 4   # 25 mils from body edge
             _STUB_MIL    = _DEHDL_MIL_PER_STEP         # stub length in mils
+            # Overbar (Active Low) metrics — grid: Size=0.002in × Multiple=4 → 1 step = 8 mils
+            _OB_STEP     = 8                                    # 1 Allegro grid step in mils
+            _OB_CHAR_W   = 3 * _OB_STEP                        # char width   = 3 steps = 24 mils
+            _OB_CHAR_SP  = 2 * _OB_STEP                        # char spacing = 2 steps = 16 mils
+            _OB_T_HEIGHT = 6 * _OB_STEP                        # T text height = 6 steps = 48 mils (= T size field)
+            _OB_GAP      = 2 * _OB_STEP                        # overbar gap   = 2 steps = 16 mils above text top
+            # bbox_width = N×(char_w+spacing) = N×40; overbar = full bbox width; gap = 2 steps above text top
             t_lines  = []
             cx_lines = []
             for _pins_list, _side in (
@@ -1470,7 +1477,8 @@ def show_main(page: ft.Page, cfg: dict):
                     _pname = _pp.get("name", "")
                     _pnum  = _pp.get("number", "")
                     if _pname:
-                        _fs = 2 if _pp.get("negated", False) else 3
+                        _negated = _pp.get("negated", False)
+                        _fs = 2 if _negated else 3
                         _y_delta = 20  # mils below pin_y for Format A baseline
                         if _side == "left":
                             _tx_a, _ty_a, _ax = _TEXT_OFFSET, _y1 - _y_delta, 0.0
@@ -1488,6 +1496,18 @@ def show_main(page: ft.Page, cfg: dict):
                             f"T {_tx_a} {_ty_a} {_ax:.2f} 0.00 48 0 0 0 0 {_fs} 74\n"
                             f"{_pname}\n"
                         )
+                        # Overbar (Active Low): full width = N×40mils; pos = baseline + T_height + 2-step gap
+                        if _negated:
+                            _ob_n  = len(_pname)
+                            _ob_tw = _ob_n * (_OB_CHAR_W + _OB_CHAR_SP)             # N×40 mils full width
+                            if _side in ("left", "right"):
+                                # overbar = baseline + T_height(48) + 2-step gap(16)
+                                _ob_y = _ty_a + _OB_T_HEIGHT + _OB_GAP
+                                l_lines.append(f"L {_tx_a} {_ob_y} {_tx_a + _ob_tw} {_ob_y} -1 74\n")
+                            else:
+                                # Rotated 90° CCW: vertical line, 2 steps to the left of text top
+                                _ob_x = _tx_a - _OB_T_HEIGHT - _OB_GAP
+                                l_lines.append(f"L {_ob_x} {_ty_a} {_ob_x} {_ty_a + _ob_tw} -1 74\n")
                         # Format B (left/right only)
                         if _side in ("left", "right"):
                             t_lines.append(
@@ -2217,7 +2237,7 @@ def show_main(page: ft.Page, cfg: dict):
         body_h = max(_SYM_GRID, int(round(_bsz.get("h", auto_h) / _SYM_GRID) * _SYM_GRID))
         body_w = max(_SYM_GRID, int(round(_bsz.get("w", auto_w) / _SYM_GRID) * _SYM_GRID))
 
-        canvas_h = body_h + _SYM_PIN_STUB * 2 + 80
+        canvas_h = body_h + _SYM_PIN_STUB * 2 + 80   # provisional; recalculated after _gpos is defined
         canvas_w = _sym_editor_state.get("canvas_w", _SYM_CANVAS_W)
 
         cx       = canvas_w / 2
@@ -2277,6 +2297,20 @@ def show_main(page: ft.Page, cfg: dict):
             if not valid:
                 valid = [(abs(d), sd) for d, sd in dists]
             return min(valid)[1]
+
+        # ── Pre-scan all pin positions to set canvas_h dynamically ──
+        # Runs here, after _gpos/_snap/_pos_side are defined.
+        # _gpos is idempotent: the draw loop below will reuse cached positions.
+        _all_ys = [body_top, body_bot]
+        for _r, (_pi, _) in enumerate(left_pins):
+            _, _gy = _gpos(_pi, "left",   _r); _all_ys.append(_gy)
+        for _r, (_pi, _) in enumerate(right_pins):
+            _, _gy = _gpos(_pi, "right",  _r); _all_ys.append(_gy)
+        for _c, (_pi, _) in enumerate(top_pins):
+            _, _gy = _gpos(_pi, "top",    _c); _all_ys.append(_gy)
+        for _c, (_pi, _) in enumerate(bottom_pins):
+            _, _gy = _gpos(_pi, "bottom", _c); _all_ys.append(_gy)
+        canvas_h = int(round((max(_all_ys) + _SYM_PIN_STUB + 40) / _SYM_GRID)) * _SYM_GRID
 
         shapes: list    = []
         hit_areas: list = []   # [(x1,y1,x2,y2, pin_idx, side, row)]
@@ -2340,9 +2374,12 @@ def show_main(page: ft.Page, cfg: dict):
             neg       = pin.get("negated", False)
             pname     = pin.get("name", "")
             pnum      = pin.get("number", "")
-            _deco     = ft.TextDecoration.OVERLINE if neg else None
-            _ps12     = ft.TextStyle(size=12, color=text_col, decoration=_deco, decoration_color=text_col)
-            _ps11     = ft.TextStyle(size=11, color=text_col, decoration=_deco, decoration_color=text_col)
+            _ps12     = ft.TextStyle(size=12, color=text_col)
+            _ps11     = ft.TextStyle(size=11, color=text_col)
+            _ob_paint = Paint(color=text_col, stroke_width=1.5)
+            # Estimated char widths for overbar length
+            _cw12 = 7   # ~px per char at size 12
+            _cw11 = 6   # ~px per char at size 11
 
             if act_side == "left":
                 ix = body_l
@@ -2354,6 +2391,9 @@ def show_main(page: ft.Page, cfg: dict):
                     style=_ps12,
                     alignment=ft.alignment.top_right, text_align=ft.TextAlign.RIGHT,
                     max_width=max(int(px) - 4, 4)))
+                if neg and pname:
+                    _tw = len(pname) * _cw12
+                    shapes.append(cv.Line(px - 2 - _tw, py - 16, px - 2, py - 16, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((px - 8, py - 18, ix + 8, py + 26, pin_idx, side, row_or_col))
             elif act_side == "right":
@@ -2366,6 +2406,9 @@ def show_main(page: ft.Page, cfg: dict):
                     style=_ps12,
                     alignment=ft.alignment.top_left, text_align=ft.TextAlign.LEFT,
                     max_width=int(canvas_w - px) - 4))
+                if neg and pname:
+                    _tw = len(pname) * _cw12
+                    shapes.append(cv.Line(px + 2, py - 16, px + 2 + _tw, py - 16, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((ix - 8, py - 18, px + 8, py + 26, pin_idx, side, row_or_col))
             elif act_side == "top":
@@ -2378,6 +2421,10 @@ def show_main(page: ft.Page, cfg: dict):
                     style=_ps11,
                     alignment=ft.alignment.bottom_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
+                if neg and pname:
+                    _tw = len(pname) * _cw11
+                    _oy = py - 19   # 1px above text top (bottom_center at py-4, height~14px)
+                    shapes.append(cv.Line(px - _tw // 2, _oy, px + _tw // 2, _oy, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((px - 14, py - 18, px + 14, iy + 10, pin_idx, side, row_or_col))
             else:  # bottom
@@ -2390,6 +2437,9 @@ def show_main(page: ft.Page, cfg: dict):
                     style=_ps11,
                     alignment=ft.alignment.top_center, text_align=ft.TextAlign.CENTER,
                     max_width=_SYM_PIN_SPACING - 4))
+                if neg and pname:
+                    _tw = len(pname) * _cw11
+                    shapes.append(cv.Line(px - _tw // 2, py + 1, px + _tw // 2, py + 1, paint=_ob_paint))
                 if not is_ghost:
                     hit_areas.append((px - 14, iy - 10, px + 14, py + 18, pin_idx, side, row_or_col))
 
