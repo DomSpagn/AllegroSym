@@ -1252,7 +1252,7 @@ def show_main(page: ft.Page, cfg: dict):
             if matched_pkg:
                 pkg_pin_count = matched_pkg.get("pins", 0)
 
-        sym_dir = os.path.join(out_folder, "Symbols", name)
+        sym_dir = os.path.join(out_folder, "Symbols", f"{name}_data")
         os.makedirs(sym_dir, exist_ok=True)
 
         # Crea/popola il database SQLite del simbolo
@@ -1441,7 +1441,9 @@ def show_main(page: ft.Page, cfg: dict):
 
             # Pin stubs + T text for pin name (inside body, centered on stub)
             _TEXT_OFFSET = _DEHDL_MIL_PER_STEP // 4   # 25 mils from body edge
-            t_lines = []
+            _STUB_MIL    = _DEHDL_MIL_PER_STEP         # stub length in mils
+            t_lines  = []
+            cx_lines = []
             for _pins_list, _side in (
                 (left_pins_s,   "left"),
                 (right_pins_s,  "right"),
@@ -1466,6 +1468,7 @@ def show_main(page: ft.Page, cfg: dict):
                     # Format A: T X Y AngleX 0.00 48 0 0 0 0 FontStyle 74  (all sides)
                     # Format B: T X Y 0.00 0.00 0 0 0 2 0 FontStyle 74     (left/right only)
                     _pname = _pp.get("name", "")
+                    _pnum  = _pp.get("number", "")
                     if _pname:
                         _fs = 2 if _pp.get("negated", False) else 3
                         _y_delta = 20  # mils below pin_y for Format A baseline
@@ -1492,7 +1495,46 @@ def show_main(page: ft.Page, cfg: dict):
                                 f"{_pname}\n"
                             )
 
-            css_content = (
+                    # C + X instructions: DOT at external pin tip with $PN and PIN_NAME attributes
+                    # $PN "?" appears above the stub line; PIN_NAME appears near the dot on the line
+                    if _pnum or _pname:
+                        _clabel = f"N{_pnum}-{part_num}\\NAC"
+                        _mid_stub_x = (_x1 + _x2) // 2
+                        _mid_stub_y = (_y1 + _y2) // 2
+                        if _side == "left":
+                            # C label: to the left of dot, L-justified, rot=0
+                            _cl_x, _cl_y, _cl_rot, _cl_f, _cl_just = _x1 - _STUB_MIL, _y1 - 10, 0, 0, "L"
+                            # $PN on stub, right-aligned toward body (just=2)
+                            _pn_x, _pn_y, _pn_just = _mid_stub_x, _y1 + 20, 2
+                            # PIN_NAME near the dot
+                            _pnm_x, _pnm_y, _pnm_just = _x1 + 10, _y1, 4
+                        elif _side == "right":
+                            # C label: to the right of dot, L-justified, rot=0 (matches reference)
+                            _cl_x, _cl_y, _cl_rot, _cl_f, _cl_just = _x1 + 15, _y1 - 10, 0, 0, "L"
+                            # $PN on stub, left-aligned toward body (just=0)
+                            _pn_x, _pn_y, _pn_just = _mid_stub_x, _y1 + 20, 0
+                            # PIN_NAME near the dot
+                            _pnm_x, _pnm_y, _pnm_just = _x1 - 10, _y1, 6
+                        elif _side == "top":
+                            # C label: just above dot, L-justified, rot=0, field9=1 (matches reference)
+                            _cl_x, _cl_y, _cl_rot, _cl_f, _cl_just = _x1 + 10, _y1 + 15, 0, 1, "L"
+                            # $PN below dot (toward body), left-aligned
+                            _pn_x, _pn_y, _pn_just = _x1 - 20, _y1 - 25, 0
+                            # PIN_NAME near the dot
+                            _pnm_x, _pnm_y, _pnm_just = _x1, _y1 - 10, 0
+                        else:  # bottom
+                            # C label: well below dot, L-justified, rot=0, field9=1 (matches reference)
+                            _cl_x, _cl_y, _cl_rot, _cl_f, _cl_just = _x1 + 10, _y1 - 215, 0, 1, "L"
+                            # $PN above dot (toward body), left-aligned
+                            _pn_x, _pn_y, _pn_just = _x1 - 20, _y1 + 15, 0
+                            # PIN_NAME near the dot
+                            _pnm_x, _pnm_y, _pnm_just = _x1, _y1 + 10, 0
+                        cx_lines.append(
+                            f'C {_x1} {_y1} "{_clabel}" {_cl_x} {_cl_y} {_cl_rot} 1 31 {_cl_f} {_cl_just}\n'
+                            f'X "$PN" "?" {_pn_x} {_pn_y} 0.00 0.00 31 0 0 {_pn_just} 0 0 1 0 74\n'
+                        )
+
+            _p_lines = (
                 'P "CATEGORY" "?" 360 545 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
                 'P "VOLTAGE" "?" 360 245 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
                 'P "TOLERANCE" "?" 360 145 0.00 0.00 36 0 0 1 0 0 0 0 74\n'
@@ -1505,7 +1547,8 @@ def show_main(page: ft.Page, cfg: dict):
                 'P "SUPPLIER" "?" 360 745 0.00 0.00 36 0 0 1 0 0 0 0 0\n'
                 'P "VALUE" "?" 300 975 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
                 'P "$LOCATION" "?" 300 1025 0.00 0.00 36 0 0 1 0 0 1 0 74\n'
-            ) + "".join(l_lines) + "".join(t_lines)
+            )
+            css_content = "".join(cx_lines) + "".join(l_lines) + "".join(t_lines) + _p_lines
 
             with open(os.path.join(sym_part_dir, "symbol.css"), "w", encoding="utf-8") as f:
                 f.write(css_content)
