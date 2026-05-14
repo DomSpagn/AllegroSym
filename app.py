@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import math
 import os
 import shutil
@@ -1347,11 +1347,6 @@ def show_main(page: ft.Page, cfg: dict):
         # Crea master.tag con il contenuto 'chips.prt' nella stessa directory
         with open(os.path.join(chips_dir, "master.tag"), "w", encoding="utf-8") as f:
             f.write("chips.prt")
-
-        # entity/
-        os.makedirs(os.path.join(dehdl_dir, "entity"), exist_ok=True)
-
-
 
         # sym_1  sym_N/
         for part_num in range(1, num_parts + 1):
