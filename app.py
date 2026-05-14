@@ -236,6 +236,7 @@ def show_main(page: ft.Page, cfg: dict):
     _bottom_bar_ref             = ft.Ref[ft.Container]()
     add_pkg_panel_title_ref    = ft.Ref[ft.Text]()
     edit_fields_container_ref  = ft.Ref[ft.Container]()  # kept for layout helpers
+    pkg_pkgtype_wrapper_ref    = ft.Ref[ft.Container]()
     footprint_preview_ref      = ft.Ref[ft.Container]()
     fp_canvas_ref              = ft.Ref[cv.Canvas]()
     del_pkg_btn_ref            = ft.Ref[ft.IconButton]()
@@ -373,7 +374,9 @@ def show_main(page: ft.Page, cfg: dict):
         pins_str = pkg_pins_field.value.strip()
         pins_ok  = pins_str.isdigit() and int(pins_str) > 0
         fp_ok    = bool(pkg_images["footprint"])
-
+        mnt_ok   = bool(pkg_mounting_dd.value)
+        pkt_ok   = bool(pkg_pkgtype_dd.value)
+        
         if pins_str == "":
             pkg_pins_field.error_text   = None
             pkg_pins_field.border_color = None
@@ -383,7 +386,11 @@ def show_main(page: ft.Page, cfg: dict):
         else:
             pkg_pins_field.error_text   = None
             pkg_pins_field.border_color = None
-
+        fp_btn_ok = name_ok and pins_ok and mnt_ok and pkt_ok
+        _footprint_pick_btn.disabled = not fp_btn_ok
+        _footprint_pick_btn.opacity  = 1.0 if fp_btn_ok else 0.35
+        if _footprint_pick_btn.page:
+            _footprint_pick_btn.update()
         row_visible = fp_ok
         if save_pkg_btn_ref.current:
             save_enabled = name_ok and pins_ok
@@ -428,9 +435,87 @@ def show_main(page: ft.Page, cfg: dict):
         s.get("footprint_btn", "Footprint Image"),
         icon=ft.icons.IMAGE,
         on_click=lambda e: pick_footprint(e),
+        disabled=True,
+        opacity=0.35,
     )
 
-    # -- Delete Package dropdown -----------------------------------------------
+    # -- Mounting Type / Package Type dropdowns --------------------------------
+    def _get_pkg_type_options(mnt: str):
+        if mnt == "THT":
+            return [
+                ft.dropdown.Option("SIP",           "SIP"),
+                ft.dropdown.Option("DIP",           "DIP"),
+                ft.dropdown.Option("ZIP",           "ZIP"),
+                ft.dropdown.Option("PGA",           "PGA"),
+                ft.dropdown.Option("TO-92",         "TO-92"),
+                ft.dropdown.Option("TO-220",        "TO-220"),
+                ft.dropdown.Option("TO-126",        "TO-126"),
+                ft.dropdown.Option("TO-3",          "TO-3"),
+                ft.dropdown.Option("TO-247/TO-3P",  "TO-247/TO-3P"),
+                ft.dropdown.Option("DO-35/DO-41",   "DO-35/DO-41"),
+                ft.dropdown.Option("Axial",  "Assiali" if lang == "it" else "Axial"),
+                ft.dropdown.Option("Radial", "Radiali" if lang == "it" else "Radial"),
+                ft.dropdown.Option("Other",  "Altro"   if lang == "it" else "Other"),
+            ]
+        elif mnt == "SMT":
+            return [
+                ft.dropdown.Option("SOT-23",           "SOT-23"),
+                ft.dropdown.Option("SOT-223",          "SOT-223"),
+                ft.dropdown.Option("SOD-123/SOD-323",  "SOD-123 / SOD-323"),
+                ft.dropdown.Option("DPAK/D2PAK",       "DPAK (TO-252) / D2PAK (TO-263)"),
+                ft.dropdown.Option("SOIC",             "SOIC"),
+                ft.dropdown.Option("TSOP",             "TSOP"),
+                ft.dropdown.Option("SOP/SSOP/TSSOP",   "SOP/SSOP/TSSOP"),
+                ft.dropdown.Option("QFP",              "QFP"),
+                ft.dropdown.Option("QFN",              "QFN"),
+                ft.dropdown.Option("LCC",              "LCC"),
+                ft.dropdown.Option("BGA",              "BGA"),
+                ft.dropdown.Option("WLCSP",            "WLCSP"),
+            ]
+        return []
+
+    def _on_mounting_change(e):
+        nonlocal pkg_pkgtype_dd
+        mnt_val = pkg_mounting_dd.value
+        new_opts = _get_pkg_type_options(mnt_val or "")
+        # Ricrea il dropdown da zero: unico modo sicuro per forzare il reset visivo in Flet
+        pkg_pkgtype_dd = ft.Dropdown(
+            label=s.get("package_type", "Package Type"),
+            width=280,
+            options=new_opts,
+            value=None,  # nessuna selezione → mostra solo la label
+            disabled=not bool(mnt_val),
+            opacity=1.0 if bool(mnt_val) else 0.5,
+            on_change=_check_save_enabled,
+        )
+        if pkg_pkgtype_wrapper_ref.current:
+            pkg_pkgtype_wrapper_ref.current.content = pkg_pkgtype_dd
+            if pkg_pkgtype_wrapper_ref.current.page:
+                pkg_pkgtype_wrapper_ref.current.update()
+        _check_save_enabled()
+
+    pkg_mounting_dd = ft.Dropdown(
+        label=s.get("mounting_type", "Mounting Type"),
+        width=280,
+        options=[
+            ft.dropdown.Option("SMT", "SMT"),
+            ft.dropdown.Option("THT", "THT"),
+        ],
+        on_change=_on_mounting_change,
+    )
+    pkg_pkgtype_dd = ft.Dropdown(
+        label=s.get("package_type", "Package Type"),
+        width=280,
+        options=[],
+        disabled=True,
+        opacity=0.5,
+        on_change=_check_save_enabled,
+    )
+    # Wrapper container: sostituendo il suo content si ricrea il dropdown visivamente
+    pkg_pkgtype_wrapper = ft.Container(
+        ref=pkg_pkgtype_wrapper_ref,
+        content=pkg_pkgtype_dd,
+    )
     def _on_del_dd_select(e):
         enabled = bool(del_pkg_dd.value)
         if del_btn_ref.current:
@@ -509,7 +594,7 @@ def show_main(page: ft.Page, cfg: dict):
             expand=True,
             alignment=ft.alignment.center,
             content=ft.Column(
-                [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text],
+                [pkg_name_field, pkg_pins_field, pkg_mounting_dd, pkg_pkgtype_wrapper, _footprint_pick_btn, fp_path_text],
                 spacing=12,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
@@ -530,7 +615,7 @@ def show_main(page: ft.Page, cfg: dict):
                     padding=ft.padding.only(right=12),
                     alignment=ft.alignment.center,
                     content=ft.Column(
-                        [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text],
+                        [pkg_name_field, pkg_pins_field, pkg_mounting_dd, pkg_pkgtype_wrapper, _footprint_pick_btn, fp_path_text],
                         spacing=12,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
@@ -626,22 +711,12 @@ def show_main(page: ft.Page, cfg: dict):
         _refresh_canvas()
         if _alphanumeric_pkg_container_ref.current:
             _alphanumeric_pkg_container_ref.current.visible = (method == "alphanumeric")
-        if method in ("clockwise", "counterclockwise"):
+        if method in ("clockwise", "counterclockwise", "zigzag", "inline"):
             _pin_method["waiting_pin1"] = True
             hint = (
                 "Clicca sul Pin 1 per avviare la numerazione automatica"
                 if lang == "it" else
                 "Click on Pin 1 to start auto-numbering"
-            )
-            if _pin_hint_ref.current:
-                _pin_hint_ref.current.value = hint
-                _pin_hint_ref.current.visible = True
-                _pin_hint_ref.current.update()
-        elif method == "manual":
-            hint = (
-                "Clicca su un pin per assegnargli le sue proprietà"
-                if lang == "it" else
-                "Click on a pin to assign it its properties"
             )
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.value = hint
@@ -741,10 +816,11 @@ def show_main(page: ft.Page, cfg: dict):
             label=s.get("select_pin_numbering", "Pin Numbering Method"),
             width=360,
             options=[
-                ft.dropdown.Option("manual",           s.get("pin_method_manual",           "Manual")),
-                ft.dropdown.Option("clockwise",        s.get("pin_method_clockwise",        "Clockwise")),
-                ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "Counterclockwise")),
-                ft.dropdown.Option("alphanumeric",     s.get("pin_method_alphanumeric",     "Alphanumeric Matrix")),
+                ft.dropdown.Option("inline",        s.get("pin_method_inline",           "In-line")),
+                ft.dropdown.Option("clockwise",     s.get("pin_method_clockwise",        "CW")),
+                ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "CCW")),
+                ft.dropdown.Option("zigzag",        s.get("pin_method_zigzag",           "Zig-Zag")),
+                ft.dropdown.Option("alphanumeric",  s.get("pin_method_alphanumeric",     "Alphanumeric")),
             ],
             on_change=_on_pin_method_change,
         )
@@ -895,6 +971,115 @@ def show_main(page: ft.Page, cfg: dict):
             _pin_hint_ref.current.update()
         _refresh_canvas()
 
+    def _auto_number_zigzag(pin1_idx: int):
+        """Zig-zag: detects layout orientation via largest gap, direction from pin1 position."""
+        pins = _fp_state["pins"]
+        n = len(pins)
+        if n == 0:
+            return
+        centers = [(p["bbox_orig"][0] + p["bbox_orig"][2] / 2.0,
+                    p["bbox_orig"][1] + p["bbox_orig"][3] / 2.0) for p in pins]
+        xs = [c[0] for c in centers]
+        ys = [c[1] for c in centers]
+        p1x, p1y = centers[pin1_idx]
+
+        # Find the axis with the largest single gap to determine split axis
+        xs_s = sorted(set(xs))
+        ys_s = sorted(set(ys))
+        max_x_gap = max((xs_s[i+1] - xs_s[i] for i in range(len(xs_s)-1)), default=0)
+        max_y_gap = max((ys_s[i+1] - ys_s[i] for i in range(len(ys_s)-1)), default=0)
+
+        if max_x_gap >= max_y_gap:
+            # Two columns (left / right): split along X at the largest gap
+            split_x_idx = max(range(len(xs_s)-1), key=lambda i: xs_s[i+1] - xs_s[i])
+            split_x = (xs_s[split_x_idx] + xs_s[split_x_idx + 1]) / 2
+            group_a = [i for i in range(n) if centers[i][0] <= split_x]
+            group_b = [i for i in range(n) if centers[i][0] >  split_x]
+            if pin1_idx not in group_a:
+                group_a, group_b = group_b, group_a
+            # Direction: pin1 near top -> top->bottom; near bottom -> bottom->top
+            a_ys = [centers[i][1] for i in group_a]
+            pin1_rel = (p1y - min(a_ys)) / ((max(a_ys) - min(a_ys)) or 1)
+            rev = pin1_rel > 0.5
+            side_a = sorted(group_a, key=lambda i: centers[i][1], reverse=rev)
+            side_b = sorted(group_b, key=lambda i: centers[i][1], reverse=rev)
+        else:
+            # Two rows (top / bottom): split along Y at the largest gap
+            split_y_idx = max(range(len(ys_s)-1), key=lambda i: ys_s[i+1] - ys_s[i])
+            split_y = (ys_s[split_y_idx] + ys_s[split_y_idx + 1]) / 2
+            group_a = [i for i in range(n) if centers[i][1] <= split_y]
+            group_b = [i for i in range(n) if centers[i][1] >  split_y]
+            if pin1_idx not in group_a:
+                group_a, group_b = group_b, group_a
+            # Direction: pin1 near left -> left->right; near right -> right->left
+            a_xs = [centers[i][0] for i in group_a]
+            pin1_rel = (p1x - min(a_xs)) / ((max(a_xs) - min(a_xs)) or 1)
+            rev = pin1_rel > 0.5
+            side_a = sorted(group_a, key=lambda i: centers[i][0], reverse=rev)
+            side_b = sorted(group_b, key=lambda i: centers[i][0], reverse=rev)
+
+        # Rotate side_a so pin1 is first
+        if pin1_idx in side_a:
+            rot = side_a.index(pin1_idx)
+            side_a = side_a[rot:] + side_a[:rot]
+        # Rotate side_b to start at the pin closest to pin1
+        if side_b:
+            p1cx, p1cy = centers[pin1_idx]
+            closest_b = min(side_b, key=lambda i: (centers[i][0]-p1cx)**2 + (centers[i][1]-p1cy)**2)
+            rot_b = side_b.index(closest_b)
+            side_b = side_b[rot_b:] + side_b[:rot_b]
+        # Interleave: A[0], B[0], A[1], B[1], ...
+        order = []
+        for k in range(max(len(side_a), len(side_b))):
+            if k < len(side_a):
+                order.append(side_a[k])
+            if k < len(side_b):
+                order.append(side_b[k])
+        for num, idx in enumerate(order, start=1):
+            pins[idx]["number"] = str(num)
+        _pin_method["waiting_pin1"] = False
+        if _pin_hint_ref.current:
+            _pin_hint_ref.current.value = (
+                "Clicca su un pin per assegnargli le sue proprietà"
+                if lang == "it" else
+                "Click on a pin to assign it its properties"
+            )
+            _pin_hint_ref.current.visible = True
+            _pin_hint_ref.current.update()
+        _refresh_canvas()
+
+    def _auto_number_inline(pin1_idx: int):
+        """In-line: greedy nearest-neighbour walk starting from pin1."""
+        pins = _fp_state["pins"]
+        n = len(pins)
+        if n == 0:
+            return
+        centers = [(p["bbox_orig"][0] + p["bbox_orig"][2] / 2.0,
+                    p["bbox_orig"][1] + p["bbox_orig"][3] / 2.0) for p in pins]
+        unvisited = list(range(n))
+        current = pin1_idx
+        unvisited.remove(current)
+        order = [current]
+        while unvisited:
+            cx, cy = centers[current]
+            nearest = min(unvisited,
+                          key=lambda i: (centers[i][0]-cx)**2 + (centers[i][1]-cy)**2)
+            order.append(nearest)
+            unvisited.remove(nearest)
+            current = nearest
+        for num, idx in enumerate(order, start=1):
+            pins[idx]["number"] = str(num)
+        _pin_method["waiting_pin1"] = False
+        if _pin_hint_ref.current:
+            _pin_hint_ref.current.value = (
+                "Clicca su un pin per assegnargli le sue proprietà"
+                if lang == "it" else
+                "Click on a pin to assign it its properties"
+            )
+            _pin_hint_ref.current.visible = True
+            _pin_hint_ref.current.update()
+        _refresh_canvas()
+
     # -- Image hover/tap handlers ------------------------------------------------
     def _handle_img_hover(e):
         cx, cy = e.local_x, e.local_y
@@ -961,6 +1146,10 @@ def show_main(page: ft.Page, cfg: dict):
                     _auto_number_pins(i, method)
                 elif method == "alphanumeric" and _pin_method["waiting_pin1"]:
                     _auto_number_alphanumeric()
+                elif method == "zigzag" and _pin_method["waiting_pin1"]:
+                    _auto_number_zigzag(i)
+                elif method == "inline" and _pin_method["waiting_pin1"]:
+                    _auto_number_inline(i)
                 else:
                     _show_pin_dialog(i)
                 return
@@ -1132,6 +1321,18 @@ def show_main(page: ft.Page, cfg: dict):
         _pin_method["value"]    = None
         _pin_method["waiting_pin1"] = False
         _alphanumeric_pkg_type["value"] = None
+        pkg_mounting_dd.value   = None
+        # Ricrea il dropdown a stato vuoto
+        pkg_pkgtype_dd = ft.Dropdown(
+            label=s.get("package_type", "Package Type"),
+            width=280,
+            options=[],
+            disabled=True,
+            opacity=0.5,
+            on_change=_check_save_enabled,
+        )
+        if pkg_pkgtype_wrapper_ref.current:
+            pkg_pkgtype_wrapper_ref.current.content = pkg_pkgtype_dd
 
     # -- Package CRUD handlers -------------------------------------------------
     def _update_next_btn_state():
@@ -1642,6 +1843,8 @@ def show_main(page: ft.Page, cfg: dict):
         search_pkg_panel.visible   = False
         _reset_pkg_state()
         _set_centered_layout()
+        add_pkg_panel.visible      = True
+        page.update()
         if _add_pkg_title_ref.current:
             _add_pkg_title_ref.current.value = s.get("add_package", "Add Package") + " 1/2"
         if _bottom_bar_ref.current:
@@ -2071,7 +2274,7 @@ def show_main(page: ft.Page, cfg: dict):
     pkg_dropdown.on_change     = _on_pkg_type_change
     ref_des_dropdown.on_change = _on_ref_des_change
 
-    # \u2500\u2500 Delete Symbol dropdown + confirm button ref \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    # \u2500\u2500 Delete Symbol dropdown + confirm button ref \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     del_sym_confirm_btn_ref = ft.Ref[ft.ElevatedButton]()
 
     del_sym_dd = ft.Dropdown(
@@ -2101,7 +2304,7 @@ def show_main(page: ft.Page, cfg: dict):
                                 [
                                     ft.ElevatedButton(
                                         s.get("delete", "Delete"),
-                                        ref=del_sym_confirm_btn_ref,
+                                        ref=del_btn_ref,
                                         icon=ft.icons.DELETE,
                                         color=ft.colors.RED,
                                         on_click=confirm_delete_symbol,
@@ -2966,7 +3169,7 @@ def show_main(page: ft.Page, cfg: dict):
                         expand=True,
                         alignment=ft.alignment.center,
                         content=ft.Column(
-                            [pkg_name_field, pkg_pins_field, _footprint_pick_btn, fp_path_text],
+                            [pkg_name_field, pkg_pins_field, pkg_mounting_dd, pkg_pkgtype_wrapper, _footprint_pick_btn, fp_path_text],
                             spacing=12,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             tight=True,
