@@ -246,6 +246,7 @@ def show_main(page: ft.Page, cfg: dict):
     _fp_state = {"pins": [], "scale_x": 1.0, "scale_y": 1.0}
     _pin_method = {"value": None, "waiting_pin1": False}
     _sym_pkg_ref = {"footprint": ""}  # footprint path active in New Symbol interactive preview
+    _selected_pkg_catalog_type = {"mount": "", "type": ""}  # package type of selected Package ID
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
     _pin_hover_tooltip_ref          = ft.Ref[ft.Container]()
@@ -336,7 +337,7 @@ def show_main(page: ft.Page, cfg: dict):
         on_change=lambda e: (_check_sym_parts(e), _update_next_btn_state()),
     )
     pkg_dropdown = ft.Dropdown(
-        label=s.get("package_type", "Package Type"),
+        label=s.get("package_id", "Package ID"),
         width=320,
         options=[ft.dropdown.Option(pkg_display_name(p)) for p in packages],
     )
@@ -811,17 +812,23 @@ def show_main(page: ft.Page, cfg: dict):
             [img_ctrl, tap_layer, tooltip_overlay], width=_interactive_w, height=preview_h
         )
 
+        _ALPHANUMERIC_PKG_TYPES = frozenset({"BGA", "LGA", "PGA", "CSP", "WLCSP", "LFBGA", "SiP"})
+        _show_alphanumeric = _selected_pkg_catalog_type.get("type", "") in _ALPHANUMERIC_PKG_TYPES
+        _pin_method_opts = [
+            ft.dropdown.Option("inline",           s.get("pin_method_inline",           "In-line")),
+            ft.dropdown.Option("clockwise",        s.get("pin_method_clockwise",        "CW")),
+            ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "CCW")),
+            ft.dropdown.Option("zigzag",           s.get("pin_method_zigzag",           "Zig-Zag")),
+        ]
+        if _show_alphanumeric:
+            _pin_method_opts.append(
+                ft.dropdown.Option("alphanumeric", s.get("pin_method_alphanumeric", "Alphanumeric"))
+            )
         pin_method_dd = ft.Dropdown(
             ref=pin_method_dd_ref,
             label=s.get("select_pin_numbering", "Pin Numbering Method"),
             width=360,
-            options=[
-                ft.dropdown.Option("inline",        s.get("pin_method_inline",           "In-line")),
-                ft.dropdown.Option("clockwise",     s.get("pin_method_clockwise",        "CW")),
-                ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "CCW")),
-                ft.dropdown.Option("zigzag",        s.get("pin_method_zigzag",           "Zig-Zag")),
-                ft.dropdown.Option("alphanumeric",  s.get("pin_method_alphanumeric",     "Alphanumeric")),
-            ],
+            options=_pin_method_opts,
             on_change=_on_pin_method_change,
         )
         hint_text = ft.Text(
@@ -1390,6 +1397,7 @@ def show_main(page: ft.Page, cfg: dict):
             ]
             fp = pkg.get("footprint", "")
             _sym_pkg_ref["footprint"] = fp
+            _selected_pkg_catalog_type.update(_read_pkg_catalog_type(dname))
             _build_interactive_preview(_theme_fp_path(fp))
         if _new_sym_bottom_bar_ref.current:
             _new_sym_bottom_bar_ref.current.visible = True
@@ -1434,7 +1442,6 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _generate_symbol(e):
         """Called by the Generate Symbol button  saves the symbol and creates its folder."""
-        import sqlite3
         name      = sym_name_field.value.strip()
         parts_str = sym_parts_field.value.strip()
         if not name:
@@ -1455,37 +1462,6 @@ def show_main(page: ft.Page, cfg: dict):
 
         sym_dir = os.path.join(out_folder, "Symbols", f"{name}_data")
         os.makedirs(sym_dir, exist_ok=True)
-
-        # Crea/popola il database SQLite del simbolo
-        db_path = os.path.join(sym_dir, f"{name}.db")
-        con = sqlite3.connect(db_path)
-        con.execute(
-            "CREATE TABLE IF NOT EXISTS symbol_data ("
-            "\"Pin ID\" TEXT,"
-            "\"Pin Name\" TEXT,"
-            "\"Active Low\" TEXT,"
-            "\"Package Type\" TEXT,"
-            "\"Part #\" TEXT)"
-        )
-        con.execute("DELETE FROM symbol_data")
-        rows = []
-        if pins:
-            for pin in pins:
-                rows.append((
-                    pin.get("number", ""),
-                    pin.get("name", ""),
-                    "True" if pin.get("negated", False) else "False",
-                    package_type,
-                    pin.get("part_number", "1"),
-                ))
-        else:
-            # Nessun pin definito: inserisce una riga con i dati base
-            rows.append(("", "", "False", package_type, "1"))
-        con.executemany(
-            "INSERT INTO symbol_data VALUES (?, ?, ?, ?, ?)", rows
-        )
-        con.commit()
-        con.close()
 
         # -- Struttura cartelle DEHDL symbol ----------------------------------
         dehdl_dir = os.path.join(sym_dir, name)
@@ -1853,12 +1829,66 @@ def show_main(page: ft.Page, cfg: dict):
         _check_save_enabled()
         page.update()
 
+    # -- Catalogo PackagesCatalog in packages.db ------------------------------
+    def _upsert_packages_catalog(name, pins, mount, pkg_type):
+        import sqlite3 as _sqlite3
+        from datetime import datetime as _dt
+        pkg_id = f"{name}{pins}"
+        now    = _dt.now().strftime("%d/%m/%y %H:%M:%S")
+        with _sqlite3.connect(_cfg_mod.PACKAGES_DB) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS PackagesCatalog ("
+                "ID TEXT PRIMARY KEY, Name TEXT, NumPins INTEGER, "
+                "Mount TEXT, Type TEXT, Created TEXT)"
+            )
+            try:
+                conn.execute("ALTER TABLE PackagesCatalog ADD COLUMN Created TEXT")
+            except Exception:
+                pass
+            conn.execute(
+                "INSERT OR IGNORE INTO PackagesCatalog "
+                "(ID, Name, NumPins, Mount, Type, Created) VALUES (?, ?, ?, ?, ?, ?)",
+                (pkg_id, name, pins, mount, pkg_type, now),
+            )
+            conn.execute(
+                "UPDATE PackagesCatalog SET Name=?, NumPins=?, Mount=?, Type=? WHERE ID=?",
+                (name, pins, mount, pkg_type, pkg_id),
+            )
+
+    def _delete_packages_catalog(name, pins):
+        import sqlite3 as _sqlite3
+        pkg_id = f"{name}{pins}"
+        try:
+            with _sqlite3.connect(_cfg_mod.PACKAGES_DB) as conn:
+                conn.execute(
+                    "DELETE FROM PackagesCatalog WHERE ID = ?", (pkg_id,)
+                )
+        except Exception:
+            pass
+
+    def _read_pkg_catalog_type(pkg_id: str):
+        """Returns {"mount": str, "type": str} for the given Package ID."""
+        import sqlite3 as _sqlite3
+        try:
+            with _sqlite3.connect(_cfg_mod.PACKAGES_DB) as conn:
+                row = conn.execute(
+                    "SELECT Mount, Type FROM PackagesCatalog WHERE ID = ?",
+                    (pkg_id,),
+                ).fetchone()
+            if row:
+                return {"mount": row[0] or "", "type": row[1] or ""}
+        except Exception:
+            pass
+        return {"mount": "", "type": ""}
+
     def save_package(_):
         name     = pkg_name_field.value.strip()
         pins_str = pkg_pins_field.value.strip()
         if not name or not (pins_str.isdigit() and int(pins_str) > 0):
             return
         pins     = int(pins_str)
+        mount    = pkg_mounting_dd.value or ""
+        pkg_type = pkg_pkgtype_dd.value or ""
         mode     = _pkg_mode["mode"]
         orig_idx = _pkg_mode["original_idx"]
 
@@ -1893,6 +1923,7 @@ def show_main(page: ft.Page, cfg: dict):
             pkg_images["footprint_is_temp"] = False
         save_packages(packages)
         packages[:] = load_packages()
+        _upsert_packages_catalog(name, pins, mount, pkg_type)
         add_pkg_panel.visible = False
         update_symbol_buttons()
 
@@ -1941,10 +1972,13 @@ def show_main(page: ft.Page, cfg: dict):
         pkg = next((p for p in packages if pkg_display_name(p) == dname), None)
         if not pkg:
             return
-        fp_path = pkg.get("footprint", "")
+        fp_path  = pkg.get("footprint", "")
+        pkg_name = pkg.get("name", "")
+        pkg_pins = pkg.get("pins", 0)
         packages[:] = [p for p in packages if pkg_display_name(p) != dname]
         save_packages(packages)
         packages[:] = load_packages()
+        _delete_packages_catalog(pkg_name, pkg_pins)
         if fp_path and os.path.isfile(fp_path):
             os.remove(fp_path)
             stem, ext = os.path.splitext(fp_path)
@@ -2061,93 +2095,6 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_list_panel.visible = True
         page.update()
 
-    def _show_symbol_db_popup(sym):
-        import sqlite3
-        folder = sym.get("folder", "")
-        name   = sym.get("name", "")
-        db_path = os.path.join(folder, f"{name}.db")
-        rows = []
-        if os.path.isfile(db_path):
-            try:
-                con = sqlite3.connect(db_path)
-                # Ordina per Pin ID: prima numericamente se possibile, poi alfabeticamente
-                cur = con.execute(
-                    "SELECT \"Pin ID\", \"Pin Name\", \"Active Low\", \"Package Type\", \"Part #\" "
-                    "FROM symbol_data "
-                    "ORDER BY CAST(\"Pin ID\" AS INTEGER), \"Pin ID\""
-                )
-                rows = cur.fetchall()
-                con.close()
-            except Exception:
-                rows = []
-
-        # Estrai Package Type dal primo record (tutti uguali)
-        package_type = rows[0][3] if rows else ""
-
-        # Colonne visibili: Pin ID, Pin Name, Active Low, Part # (Package Type escluso)
-        col_pin_name   = s.get("pin_name_col", "Pin Name")
-        col_active_low = s.get("active_low_col", "Active Low")
-        display_columns = ["Pin ID", col_pin_name, col_active_low, "Part #"]
-
-        def _cell_val(row, col):
-            mapping = {"Pin ID": 0, col_pin_name: 1, col_active_low: 2, "Package Type": 3, "Part #": 4}
-            v = row[mapping[col]]
-            return str(v) if v is not None else ""
-
-        def _make_cell(row, col):
-            val = _cell_val(row, col)
-            if col == col_active_low:
-                is_true = val.strip().lower() in ("true", "1", "yes")
-                display = s.get("true_val", "True") if is_true else s.get("false_val", "False")
-                color   = ft.colors.LIGHT_BLUE_400 if is_true else ft.colors.ORANGE
-                content = ft.Text(display, color=color, weight=ft.FontWeight.BOLD)
-            else:
-                content = ft.Text(val)
-            return ft.DataCell(ft.Container(content=content, alignment=ft.alignment.center, expand=True))
-
-        data_rows = [
-            ft.DataRow(cells=[_make_cell(row, c) for c in display_columns])
-            for row in rows
-        ] if rows else [
-            ft.DataRow(cells=[
-                ft.DataCell(ft.Container(
-                    content=ft.Text(""),
-                    alignment=ft.alignment.center,
-                    expand=True,
-                )) for _ in display_columns
-            ])
-        ]
-
-        table = ft.DataTable(
-            columns=[ft.DataColumn(ft.Text(c, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)) for c in display_columns],
-            rows=data_rows,
-            border=ft.border.all(1, ft.colors.OUTLINE),
-            border_radius=ft.border_radius.all(6),
-            horizontal_lines=ft.BorderSide(1, ft.colors.OUTLINE),
-            heading_row_color=ft.colors.with_opacity(0.05, ft.colors.ON_SURFACE),
-        )
-
-        dlg = ft.AlertDialog(
-            title=ft.Text(name, weight=ft.FontWeight.BOLD),
-            content=ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text(package_type, size=13, italic=True, color=ft.colors.ORANGE) if package_type else ft.Container(),
-                        ft.Container(height=8),
-                        ft.Container(
-                            content=ft.Row([table], scroll=ft.ScrollMode.AUTO, alignment=ft.MainAxisAlignment.CENTER),
-                            alignment=ft.alignment.center,
-                        ),
-                    ],
-                    tight=True,
-                ),
-                width=680,
-            ),
-            actions=[ft.TextButton(s.get("close", "Close"), on_click=lambda _: page.close(dlg))],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
-        )
-        page.open(dlg)
-
     def show_symbols(e):
         new_sym_panel.visible  = False
         _new_sym_step3_panel.visible = False
@@ -2179,8 +2126,6 @@ def show_main(page: ft.Page, cfg: dict):
                         ],
                         spacing=2,
                     ),
-                    on_click=lambda _, sym_=sym: _show_symbol_db_popup(sym_),
-                    ink=True,
                     border_radius=ft.border_radius.all(6),
                     padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 )

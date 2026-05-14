@@ -18,7 +18,7 @@ CONF_FILE = os.path.join(JSONS_DIR, "asym_conf.json")
 SYMBOL_LIST_FILE = os.path.join(JSONS_DIR, "symbol_list.json")
 DB_DIR = os.path.join(os.path.dirname(__file__), "db")
 PACKAGES_DB = os.path.join(DB_DIR, "packages.db")
-SYMBOLS_DB = os.path.join(DB_DIR, "symbols.db")
+SYMBOLS_DB = os.path.join(DB_DIR, "symbol_list.db")
 SYMBOLS_DIR = os.path.join(os.path.dirname(__file__), "Symbols")
 PACKAGES_IMAGES_DIR = os.path.join(os.path.dirname(__file__), "Packages")
 
@@ -41,7 +41,7 @@ def init_paths(output_folder: str):
 
     DB_DIR = os.path.join(output_folder, "db")
     PACKAGES_DB = os.path.join(DB_DIR, "packages.db")
-    SYMBOLS_DB = os.path.join(DB_DIR, "symbols.db")
+    SYMBOLS_DB = os.path.join(DB_DIR, "symbol_list.db")
     
     SYMBOLS_DIR = os.path.join(output_folder, "Symbols")
     PACKAGES_IMAGES_DIR = os.path.join(output_folder, "Packages")
