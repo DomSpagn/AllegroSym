@@ -333,6 +333,14 @@ def show_main(page: ft.Page, cfg: dict):
         label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True,
         on_change=lambda e: _update_next_btn_state(),
     )
+    sym_dup_error_text = ft.Text(
+        value="",
+        color=ft.colors.RED,
+        size=24,
+        visible=False,
+        text_align=ft.TextAlign.CENTER,
+        width=320,
+    )
     sym_parts_field = ft.TextField(
         label=s.get("symbol_parts", "Number of Symbol Parts"), width=320,
         on_change=lambda e: (_check_sym_parts(e), _update_next_btn_state()),
@@ -657,7 +665,7 @@ def show_main(page: ft.Page, cfg: dict):
             expand=True,
             alignment=ft.alignment.center,
             content=ft.Column(
-                [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown],
+                [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
                 spacing=12,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
@@ -675,7 +683,7 @@ def show_main(page: ft.Page, cfg: dict):
                     padding=ft.padding.only(right=12),
                     alignment=ft.alignment.center,
                     content=ft.Column(
-                        [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown],
+                        [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
                         spacing=12,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
@@ -1356,14 +1364,30 @@ def show_main(page: ft.Page, cfg: dict):
 
     # -- Package CRUD handlers -------------------------------------------------
     def _update_next_btn_state():
-        """Enable 'Next' only when all fields are populated."""
+        """Enable 'Next' only when all fields are populated and no duplicate (name, package)."""
         parts_str = sym_parts_field.value.strip()
-        all_ok = (
-            bool(sym_name_field.value.strip()) and
+        name_val  = sym_name_field.value.strip()
+        pkg_val   = pkg_dropdown.value
+        fields_ok = (
+            bool(name_val) and
             (parts_str.isdigit() and int(parts_str) > 0) and
-            bool(pkg_dropdown.value) and
+            bool(pkg_val) and
             bool(ref_des_dropdown.value)
         )
+        # Check for existing (name, package) combination
+        is_dup = False
+        if fields_ok:
+            is_dup = any(
+                sym["name"] == name_val and sym.get("package", "") == pkg_val
+                for sym in symbols
+            )
+        if is_dup:
+            sym_dup_error_text.value   = s.get("sym_name_pkg_duplicate",
+                "A symbol with this name and package already exists")
+            sym_dup_error_text.visible = True
+        else:
+            sym_dup_error_text.visible = False
+        all_ok = fields_ok and not is_dup
         if _next_sym_btn_ref.current:
             _next_sym_btn_ref.current.disabled = not all_ok
             _next_sym_btn_ref.current.opacity  = 1.0 if all_ok else 0.35
@@ -1463,6 +1487,7 @@ def show_main(page: ft.Page, cfg: dict):
         pkg_dropdown.value      = None
         pkg_dropdown.options    = [ft.dropdown.Option(pkg_display_name(p)) for p in packages]
         ref_des_dropdown.value  = None
+        sym_dup_error_text.visible = False
         _reset_pkg_state()
         _set_new_sym_centered_layout()
         if _new_sym_title_ref.current:
@@ -1789,7 +1814,11 @@ def show_main(page: ft.Page, cfg: dict):
             "package": package_type,
             "folder":  sym_dir,
         }
-        existing = next((i for i, s_ in enumerate(symbols) if s_["name"] == name), None)
+        existing = next(
+            (i for i, s_ in enumerate(symbols)
+             if s_["name"] == name and s_.get("package", "") == package_type),
+            None,
+        )
         if existing is not None:
             symbols[existing] = entry
         else:
@@ -1810,7 +1839,7 @@ def show_main(page: ft.Page, cfg: dict):
     def show_delete_symbol(e):
         if not symbols:
             return
-        del_sym_dd.options = [ft.dropdown.Option(s_["name"]) for s_ in symbols]
+        del_sym_dd.options = [ft.dropdown.Option(n) for n in dict.fromkeys(s_["name"] for s_ in symbols)]
         del_sym_dd.value   = None
         new_sym_panel.visible  = False
         _new_sym_step3_panel.visible = False
@@ -1871,7 +1900,7 @@ def show_main(page: ft.Page, cfg: dict):
     def _upsert_packages_catalog(name, pins, mount, pkg_type):
         import sqlite3 as _sqlite3
         from datetime import datetime as _dt
-        pkg_id = f"{name}{pins}"
+        pkg_id = f"{name}-{pins}"
         now    = _dt.now().strftime("%d/%m/%y %H:%M:%S")
         with _sqlite3.connect(_cfg_mod.PACKAGES_DB) as conn:
             conn.execute(
@@ -1895,7 +1924,7 @@ def show_main(page: ft.Page, cfg: dict):
 
     def _delete_packages_catalog(name, pins):
         import sqlite3 as _sqlite3
-        pkg_id = f"{name}{pins}"
+        pkg_id = f"{name}-{pins}"
         try:
             with _sqlite3.connect(_cfg_mod.PACKAGES_DB) as conn:
                 conn.execute(
@@ -2146,31 +2175,49 @@ def show_main(page: ft.Page, cfg: dict):
             ft_lower = filter_text.strip().lower()
             filtered = [sym for sym in symbols if ft_lower in sym["name"].lower()] if ft_lower else symbols
 
-            def _make_sym_row(sym):
-                return ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Row(
-                                [ft.Icon(ft.icons.CATEGORY, size=16),
-                                 ft.Text(sym["name"], size=13,
-                                         weight=ft.FontWeight.W_500, expand=True)],
-                                spacing=8,
-                            ),
-                            ft.Text(
-                                f"{s.get('package_type', 'Package')}: {sym.get('package', '')}  ¦  "
-                                f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
-                                size=11, italic=True, color=ft.colors.GREY_500,
-                            ),
-                        ],
-                        spacing=2,
+            if not filtered:
+                return [
+                    ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True),
+                    ft.TextButton(
+                        s.get("close", "Close"),
+                        on_click=lambda _: (setattr(sym_list_panel, "visible", False), page.update()),
                     ),
-                    border_radius=ft.border_radius.all(6),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                )
+                ]
 
-            rows = [_make_sym_row(sym) for sym in filtered] if filtered else [
-                ft.Text(s.get("no_symbols", "No symbols created yet."), italic=True)
-            ]
+            # Group by name
+            groups: dict = {}
+            for sym in filtered:
+                groups.setdefault(sym["name"], []).append(sym)
+
+            rows = []
+            for sym_name_key, entries in groups.items():
+                pkg_rows = []
+                for sym in entries:
+                    pkg_rows.append(
+                        ft.Text(
+                            f"  • {s.get('package_type', 'Package')}: {sym.get('package', '')}  ¦  "
+                            f"{s.get('created_at_label', 'Created')}: {sym.get('created_at', '')}",
+                            size=11, italic=True, color=ft.colors.GREY_500,
+                        )
+                    )
+                rows.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [ft.Icon(ft.icons.CATEGORY, size=16),
+                                     ft.Text(sym_name_key, size=13,
+                                             weight=ft.FontWeight.W_500, expand=True)],
+                                    spacing=8,
+                                ),
+                                *pkg_rows,
+                            ],
+                            spacing=2,
+                        ),
+                        border_radius=ft.border_radius.all(6),
+                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    )
+                )
             rows.append(
                 ft.TextButton(
                     s.get("close", "Close"),

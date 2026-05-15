@@ -89,6 +89,34 @@ def _migrate_packages_from_json():
     pass
 
 
+def _migrate_pkg_catalog_ids():
+    """Rename PackagesCatalog IDs from '{name}{pins}' to '{name}-{pins}' if needed."""
+    if not DB_DIR or not os.path.exists(PACKAGES_DB):
+        return
+    try:
+        with sqlite3.connect(PACKAGES_DB) as conn:
+            rows = conn.execute(
+                "SELECT ID, Name, NumPins FROM PackagesCatalog"
+            ).fetchall()
+            for old_id, name, num_pins in rows:
+                new_id = f"{name}-{num_pins}"
+                if old_id != new_id:
+                    exists = conn.execute(
+                        "SELECT 1 FROM PackagesCatalog WHERE ID=?", (new_id,)
+                    ).fetchone()
+                    if not exists:
+                        conn.execute(
+                            "UPDATE PackagesCatalog SET ID=? WHERE ID=?",
+                            (new_id, old_id),
+                        )
+                    else:
+                        conn.execute(
+                            "DELETE FROM PackagesCatalog WHERE ID=?", (old_id,)
+                        )
+    except Exception:
+        pass
+
+
 def _init_symbols_db():
     if not DB_DIR:
         return
@@ -97,11 +125,12 @@ def _init_symbols_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS symbols (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL UNIQUE,
+                name        TEXT NOT NULL,
                 parts       INTEGER DEFAULT 1,
                 package     TEXT DEFAULT '',
                 folder      TEXT DEFAULT '',
-                created_at  TEXT NOT NULL DEFAULT ''
+                created_at  TEXT NOT NULL DEFAULT '',
+                UNIQUE(name, package)
             )
         """)
         # Ensure created_at exists (may have been dropped in a previous migration)
@@ -112,6 +141,31 @@ def _init_symbols_db():
         # Drop updated_at if still present
         try:
             conn.execute("ALTER TABLE symbols DROP COLUMN updated_at")
+        except Exception:
+            pass
+        # Migration: if old schema used UNIQUE(name) alone, recreate with UNIQUE(name, package)
+        try:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='symbols'"
+            ).fetchone()
+            if row and 'name        TEXT NOT NULL UNIQUE' in row[0]:
+                conn.execute("ALTER TABLE symbols RENAME TO symbols_old")
+                conn.execute("""
+                    CREATE TABLE symbols (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name        TEXT NOT NULL,
+                        parts       INTEGER DEFAULT 1,
+                        package     TEXT DEFAULT '',
+                        folder      TEXT DEFAULT '',
+                        created_at  TEXT NOT NULL DEFAULT '',
+                        UNIQUE(name, package)
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO symbols (name, parts, package, folder, created_at) "
+                    "SELECT name, parts, package, folder, created_at FROM symbols_old"
+                )
+                conn.execute("DROP TABLE symbols_old")
         except Exception:
             pass
 
@@ -208,6 +262,7 @@ STRINGS = {
         "step2_subtitle": "Define Pin Properties",
         "step3_subtitle": "Define Pin Placement",
         "select_part": "Part #",
+        "sym_name_pkg_duplicate": "A symbol with this name and package already exists",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -298,6 +353,7 @@ STRINGS = {
         "step2_subtitle": "Definisci le Proprietà dei Pin",
         "step3_subtitle": "Posizionamento dei Pin",
         "select_part": "Part #",
+        "sym_name_pkg_duplicate": "Esiste già un simbolo con questo nome e package",
     },
 }
 
@@ -307,7 +363,7 @@ def get_strings(lang: str) -> dict:
 
 
 def pkg_display_name(p: dict) -> str:
-    return f"{p['name']}{p['pins']}"
+    return f"{p['name']}-{p['pins']}"
 
 
 def load_config():
@@ -346,6 +402,7 @@ def save_config(cfg: dict):
 def load_packages() -> list:
     _init_packages_db()
     _migrate_packages_from_json()
+    _migrate_pkg_catalog_ids()
     try:
         with sqlite3.connect(PACKAGES_DB) as conn:
             rows = conn.execute(
@@ -416,14 +473,15 @@ def save_symbols(symbols: list):
     try:
         with sqlite3.connect(SYMBOLS_DB) as conn:
             existing = {
-                r[0]: r[1]
+                (r[0], r[1]): r[2]
                 for r in conn.execute(
-                    "SELECT name, created_at FROM symbols"
+                    "SELECT name, package, created_at FROM symbols"
                 ).fetchall()
             }
             conn.execute("DELETE FROM symbols")
             for sym in symbols:
-                created_at = existing.get(sym["name"], now)
+                key = (sym["name"], sym.get("package", ""))
+                created_at = existing.get(key, now)
                 conn.execute(
                     "INSERT INTO symbols "
                     "(name, parts, package, folder, created_at) "
