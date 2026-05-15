@@ -703,17 +703,12 @@ def show_main(page: ft.Page, cfg: dict):
         method = e.control.value
         _pin_method["value"] = method
         _pin_method["waiting_pin1"] = False
-        _alphanumeric_pkg_type["value"] = None
-        if _alphanumeric_pkg_dd_ref.current:
-            _alphanumeric_pkg_dd_ref.current.value = None
         # Reset all pin IDs and names
         for pin in _fp_state["pins"]:
             pin["number"] = ""
             pin["name"]   = ""
         _refresh_canvas()
-        if _alphanumeric_pkg_container_ref.current:
-            _alphanumeric_pkg_container_ref.current.visible = (method == "alphanumeric")
-        if method in ("clockwise", "counterclockwise", "zigzag", "inline"):
+        if method in ("clockwise", "counterclockwise", "zigzag", "inline", "alphanumeric"):
             _pin_method["waiting_pin1"] = True
             hint = (
                 "Clicca sul Pin 1 per avviare la numerazione automatica"
@@ -873,24 +868,9 @@ def show_main(page: ft.Page, cfg: dict):
             text_align=ft.TextAlign.CENTER,
             visible=False,
         )
-        alphanumeric_pkg_container = ft.Container(
-            ref=_alphanumeric_pkg_container_ref,
-            visible=False,
-            alignment=ft.alignment.center,
-            content=ft.Dropdown(
-                ref=_alphanumeric_pkg_dd_ref,
-                label=s.get("package_type", "Package Type"),
-                width=360,
-                options=[
-                    ft.dropdown.Option(t, t)
-                    for t in ("BGA", "LGA", "PGA", "CSP", "VGA", "LFBGA", "SiP")
-                ],
-                on_change=_on_alphanumeric_pkg_change,
-            ),
-        )
 
         preview_column = ft.Column(
-            [pin_method_dd_wrapper, alphanumeric_pkg_container, hint_text, preview_stack],
+            [pin_method_dd_wrapper, hint_text, preview_stack],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
         )
@@ -1446,11 +1426,6 @@ def show_main(page: ft.Page, cfg: dict):
             # Reset pin method state
             _pin_method["value"] = None
             _pin_method["waiting_pin1"] = False
-            _alphanumeric_pkg_type["value"] = None
-            if _alphanumeric_pkg_dd_ref.current:
-                _alphanumeric_pkg_dd_ref.current.value = None
-            if _alphanumeric_pkg_container_ref.current:
-                _alphanumeric_pkg_container_ref.current.visible = False
             if _pin_hint_ref.current:
                 _pin_hint_ref.current.visible = False
             for pin in _fp_state["pins"]:
