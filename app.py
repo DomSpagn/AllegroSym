@@ -248,6 +248,7 @@ def show_main(page: ft.Page, cfg: dict):
     _sym_pkg_ref = {"footprint": ""}  # footprint path active in New Symbol interactive preview
     _selected_pkg_catalog_type = {"mount": "", "type": ""}  # package type of selected Package ID
     pin_method_dd_ref               = ft.Ref[ft.Dropdown]()
+    pin_method_dd_wrapper_ref       = ft.Ref[ft.Container]()
     _pin_hint_ref                   = ft.Ref[ft.Text]()
     _pin_hover_tooltip_ref          = ft.Ref[ft.Container]()
     _alphanumeric_pkg_container_ref = ft.Ref[ft.Container]()
@@ -469,8 +470,8 @@ def show_main(page: ft.Page, cfg: dict):
                 ft.dropdown.Option("SOP/SSOP/TSSOP",   "SOP/SSOP/TSSOP"),
                 ft.dropdown.Option("QFP",              "QFP"),
                 ft.dropdown.Option("QFN",              "QFN"),
-                ft.dropdown.Option("LCC",              "LCC"),
-                ft.dropdown.Option("BGA",              "BGA"),
+                ft.dropdown.Option("LCC/PLCC",         "LCC/PLCC"),
+                ft.dropdown.Option("BGA/LGA",          "BGA/LGA"),
                 ft.dropdown.Option("WLCSP",            "WLCSP"),
             ]
         return []
@@ -749,6 +750,46 @@ def show_main(page: ft.Page, cfg: dict):
                 _pin_hint_ref.current.update()
         page.update()
 
+    def _get_pin_method_opts(pkg_type: str) -> list:
+        """Return the ft.dropdown.Option list for Pin Numbering Method based on package type."""
+        _ALL_OPTS = {
+            "manual":           ft.dropdown.Option("manual",           s.get("pin_method_manual",           "Manual")),
+            "inline":           ft.dropdown.Option("inline",           s.get("pin_method_inline",           "In-line")),
+            "clockwise":        ft.dropdown.Option("clockwise",        s.get("pin_method_clockwise",        "CW")),
+            "counterclockwise": ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "CCW")),
+            "zigzag":           ft.dropdown.Option("zigzag",           s.get("pin_method_zigzag",           "Zig-Zag")),
+            "alphanumeric":     ft.dropdown.Option("alphanumeric",     s.get("pin_method_alphanumeric",     "Alphanumeric")),
+        }
+        _PKG_METHOD_MAP = {
+            "SIP":             ["manual", "inline"],
+            "DIP":             ["manual", "clockwise", "counterclockwise"],
+            "ZIP":             ["manual", "zigzag"],
+            "PGA":             ["manual", "alphanumeric"],
+            "TO-92":           ["manual", "inline"],
+            "TO-220":          ["manual", "inline"],
+            "TO-126":          ["manual", "inline"],
+            "TO-3":            ["manual", "inline"],
+            "TO-247/TO-3P":    ["manual", "inline"],
+            "DO-35/DO-41":     ["manual", "inline"],
+            "Axial":           ["manual", "inline"],
+            "Radial":          ["manual", "inline"],
+            "SOT-23":          ["manual", "clockwise", "counterclockwise"],
+            "SOT-223":         ["manual", "clockwise", "counterclockwise"],
+            "SOD-123/SOD-323": ["manual", "inline"],
+            "DPAK/D2PAK":      ["manual", "clockwise", "counterclockwise"],
+            "SOIC":            ["manual", "clockwise", "counterclockwise"],
+            "TSOP":            ["manual", "clockwise", "counterclockwise"],
+            "SOP/SSOP/TSSOP":  ["manual", "clockwise", "counterclockwise"],
+            "QFP":             ["manual", "clockwise", "counterclockwise"],
+            "QFN":             ["manual", "clockwise", "counterclockwise"],
+            "LCC/PLCC":        ["manual", "clockwise", "counterclockwise"],
+            "BGA/LGA":         ["manual", "alphanumeric"],
+            "WLCSP":           ["manual", "alphanumeric"],
+            "Other":           ["manual"],
+        }
+        methods = _PKG_METHOD_MAP.get(pkg_type, ["manual"])
+        return [_ALL_OPTS[m] for m in methods if m in _ALL_OPTS]
+
     def _build_interactive_preview(image_path: str):
         """Build interactive image (pin numbering) for the New Symbol view."""
         _pin_method["value"] = None
@@ -812,24 +853,16 @@ def show_main(page: ft.Page, cfg: dict):
             [img_ctrl, tap_layer, tooltip_overlay], width=_interactive_w, height=preview_h
         )
 
-        _ALPHANUMERIC_PKG_TYPES = frozenset({"BGA", "LGA", "PGA", "CSP", "WLCSP", "LFBGA", "SiP"})
-        _show_alphanumeric = _selected_pkg_catalog_type.get("type", "") in _ALPHANUMERIC_PKG_TYPES
-        _pin_method_opts = [
-            ft.dropdown.Option("inline",           s.get("pin_method_inline",           "In-line")),
-            ft.dropdown.Option("clockwise",        s.get("pin_method_clockwise",        "CW")),
-            ft.dropdown.Option("counterclockwise", s.get("pin_method_counterclockwise", "CCW")),
-            ft.dropdown.Option("zigzag",           s.get("pin_method_zigzag",           "Zig-Zag")),
-        ]
-        if _show_alphanumeric:
-            _pin_method_opts.append(
-                ft.dropdown.Option("alphanumeric", s.get("pin_method_alphanumeric", "Alphanumeric"))
-            )
         pin_method_dd = ft.Dropdown(
             ref=pin_method_dd_ref,
             label=s.get("select_pin_numbering", "Pin Numbering Method"),
             width=360,
-            options=_pin_method_opts,
+            options=_get_pin_method_opts(_selected_pkg_catalog_type.get("type", "")),
             on_change=_on_pin_method_change,
+        )
+        pin_method_dd_wrapper = ft.Container(
+            ref=pin_method_dd_wrapper_ref,
+            content=pin_method_dd,
         )
         hint_text = ft.Text(
             ref=_pin_hint_ref,
@@ -857,7 +890,7 @@ def show_main(page: ft.Page, cfg: dict):
         )
 
         preview_column = ft.Column(
-            [pin_method_dd, alphanumeric_pkg_container, hint_text, preview_stack],
+            [pin_method_dd_wrapper, alphanumeric_pkg_container, hint_text, preview_stack],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
         )
@@ -1406,6 +1439,36 @@ def show_main(page: ft.Page, cfg: dict):
     def _on_pkg_type_change(e):
         """Called when the user selects a package in the New Symbol dropdown."""
         _update_next_btn_state()
+        # If pin_method_dd is mounted (step 2/3), rebuild it with options for the new package type
+        if pin_method_dd_wrapper_ref.current and pin_method_dd_wrapper_ref.current.page:
+            dname = pkg_dropdown.value
+            cat = _read_pkg_catalog_type(dname) if dname else {"mount": "", "type": ""}
+            # Reset pin method state
+            _pin_method["value"] = None
+            _pin_method["waiting_pin1"] = False
+            _alphanumeric_pkg_type["value"] = None
+            if _alphanumeric_pkg_dd_ref.current:
+                _alphanumeric_pkg_dd_ref.current.value = None
+            if _alphanumeric_pkg_container_ref.current:
+                _alphanumeric_pkg_container_ref.current.visible = False
+            if _pin_hint_ref.current:
+                _pin_hint_ref.current.visible = False
+            for pin in _fp_state["pins"]:
+                pin["number"] = ""
+                pin["name"]   = ""
+            # Rebuild dropdown with new options
+            new_dd = ft.Dropdown(
+                ref=pin_method_dd_ref,
+                label=s.get("select_pin_numbering", "Pin Numbering Method"),
+                width=360,
+                options=_get_pin_method_opts(cat.get("type", "")),
+                value=None,
+                on_change=_on_pin_method_change,
+            )
+            pin_method_dd_wrapper_ref.current.content = new_dd
+            pin_method_dd_wrapper_ref.current.update()
+            _refresh_canvas()
+            page.update()
 
     def _on_ref_des_change(e):
         """Called when the user selects a reference designator."""
