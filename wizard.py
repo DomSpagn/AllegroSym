@@ -45,6 +45,9 @@ def show_wizard(page: ft.Page, on_complete):
         if e.path:
             chosen_folder["path"] = os.path.join(e.path, "ASymOut")
             output_folder_text.current.value = chosen_folder["path"]
+            if btn_finish.current:
+                btn_finish.current.disabled = False
+                btn_finish.current.opacity  = 1.0
             page.update()
 
     file_picker = ft.FilePicker(on_result=on_folder_picked)
@@ -113,6 +116,8 @@ def show_wizard(page: ft.Page, on_complete):
                             icon=ft.icons.CHECK_CIRCLE,
                             color=ft.colors.ORANGE,
                             on_click=on_finish,
+                            disabled=True,
+                            opacity=0.35,
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,

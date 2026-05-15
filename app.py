@@ -1460,11 +1460,11 @@ def show_main(page: ft.Page, cfg: dict):
             if matched_pkg:
                 pkg_pin_count = matched_pkg.get("pins", 0)
 
-        sym_dir = os.path.join(out_folder, "Symbols", f"{name}_data")
+        sym_dir = os.path.join(out_folder, "Symbols", name)
         os.makedirs(sym_dir, exist_ok=True)
 
         # -- Struttura cartelle DEHDL symbol ----------------------------------
-        dehdl_dir = os.path.join(sym_dir, name)
+        dehdl_dir = sym_dir
 
         # chips/
         chips_dir = os.path.join(dehdl_dir, "chips")
@@ -2249,7 +2249,7 @@ def show_main(page: ft.Page, cfg: dict):
                                 [
                                     ft.ElevatedButton(
                                         s.get("delete", "Delete"),
-                                        ref=del_btn_ref,
+                                        ref=del_sym_confirm_btn_ref,
                                         icon=ft.icons.DELETE,
                                         color=ft.colors.RED,
                                         on_click=confirm_delete_symbol,

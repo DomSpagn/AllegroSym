@@ -15,12 +15,11 @@ ICON_PATH = os.path.join(SYSTEM_IMAGES_DIR, "ASym.ico")
 # These will be updated dynamically based on output_folder
 JSONS_DIR = os.path.join(os.path.dirname(__file__), "JSONS")
 CONF_FILE = os.path.join(JSONS_DIR, "asym_conf.json")
-SYMBOL_LIST_FILE = os.path.join(JSONS_DIR, "symbol_list.json")
-DB_DIR = os.path.join(os.path.dirname(__file__), "db")
-PACKAGES_DB = os.path.join(DB_DIR, "packages.db")
-SYMBOLS_DB = os.path.join(DB_DIR, "symbol_list.db")
-SYMBOLS_DIR = os.path.join(os.path.dirname(__file__), "Symbols")
-PACKAGES_IMAGES_DIR = os.path.join(os.path.dirname(__file__), "Packages")
+DB_DIR = ""
+PACKAGES_DB = ""
+SYMBOLS_DB = ""
+SYMBOLS_DIR = ""
+PACKAGES_IMAGES_DIR = ""
 
 def init_paths(output_folder: str):
     """Updates global paths to point inside the user-selected ASymOut folder."""
@@ -37,11 +36,11 @@ def init_paths(output_folder: str):
     # JSONS/ stays in the project directory
     
     # JSONS stays in the project directory (not in ASymOut)
-    # JSONS_DIR, CONF_FILE, SYMBOL_LIST_FILE are intentionally left pointing to the project folder
+    # JSONS_DIR e CONF_FILE sono intenzionalmente lasciati nella cartella di progetto
 
     DB_DIR = os.path.join(output_folder, "db")
     PACKAGES_DB = os.path.join(DB_DIR, "packages.db")
-    SYMBOLS_DB = os.path.join(DB_DIR, "symbol_list.db")
+    SYMBOLS_DB = os.path.join(DB_DIR, "symbols.db")
     
     SYMBOLS_DIR = os.path.join(output_folder, "Symbols")
     PACKAGES_IMAGES_DIR = os.path.join(output_folder, "Packages")
@@ -58,8 +57,9 @@ def _now_str() -> str:
 
 
 def _init_packages_db():
-    if not os.path.exists(DB_DIR):
-        os.makedirs(DB_DIR, exist_ok=True)
+    if not DB_DIR:
+        return
+    os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(PACKAGES_DB) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS packages (
@@ -90,6 +90,8 @@ def _migrate_packages_from_json():
 
 
 def _init_symbols_db():
+    if not DB_DIR:
+        return
     os.makedirs(DB_DIR, exist_ok=True)
     with sqlite3.connect(SYMBOLS_DB) as conn:
         conn.execute("""
@@ -114,27 +116,7 @@ def _init_symbols_db():
             pass
 
 
-def _migrate_symbols_from_json():
-    if not os.path.exists(SYMBOL_LIST_FILE):
-        return
-    try:
-        with sqlite3.connect(SYMBOLS_DB) as conn:
-            if conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0] > 0:
-                return
-        with open(SYMBOL_LIST_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        now = _now_str()
-        with sqlite3.connect(SYMBOLS_DB) as conn:
-            for sym in data:
-                conn.execute(
-                    "INSERT OR IGNORE INTO symbols "
-                    "(name, parts, package, folder, created_at) "
-                    "VALUES (?,?,?,?,?)",
-                    (sym["name"], sym.get("parts", 1), sym.get("package", ""),
-                     sym.get("folder", ""), now),
-                )
-    except Exception:
-        pass
+
 
 STRINGS = {
     "en": {
@@ -411,7 +393,6 @@ def save_packages(packages: list):
 
 def load_symbols() -> list:
     _init_symbols_db()
-    _migrate_symbols_from_json()
     try:
         with sqlite3.connect(SYMBOLS_DB) as conn:
             rows = conn.execute(
