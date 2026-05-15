@@ -1537,6 +1537,16 @@ def show_main(page: ft.Page, cfg: dict):
         # Costruisce il contenuto di chips.prt
         primitive_id = f"{name}_{pkg_pin_count}PIN" if pkg_pin_count else name
 
+        # Determina se chips.prt esiste già (stesso nome simbolo, package diverso → append)
+        _chips_append = os.path.isfile(chips_prt_path)
+        if _chips_append:
+            with open(chips_prt_path, "r", encoding="utf-8") as _f:
+                _existing_chips = _f.read()
+            # Indice del nuovo PRIMITIVE (1-based)
+            _prim_idx = _existing_chips.count("PRIMITIVE '") + 1
+        else:
+            _prim_idx = 1
+
         # Genera la lista dei pin tra PIN e END_PIN
         # Prepara la lista con (y, x_sort_key, pin_id, y) per ordinamento
         pin_entries = []
@@ -1557,18 +1567,18 @@ def show_main(page: ft.Page, cfg: dict):
 
         pin_lines = []
         for y, x_key, pin_id, part_y in pin_entries:
+            # In append usare _prim_idx come suffisso uniforme; altrimenti part_y
+            pin_suffix = _prim_idx if _chips_append else part_y
             vec = ["0"] * num_parts
             if 1 <= part_y <= num_parts:
                 vec[part_y - 1] = pin_id if pin_id else "0"
             vec_str = ",".join(vec)
-            pin_lines.append(f"  'N{pin_id}-{part_y}':")
+            pin_lines.append(f"  'N{pin_id}-{pin_suffix}':")
             pin_lines.append(f"   PIN_NUMBER='({vec_str})';")
 
         pin_block = "\n".join(pin_lines) + "\n" if pin_lines else ""
 
-        chips_prt_content = (
-            "FILE_TYPE=LIBRARY_PARTS ;\n"
-            f"PRIMITIVE '{name}','{primitive_id}';\n"
+        _primitive_body = (
             " PIN\n"
             f"{pin_block}"
             " END_PIN;\n"
@@ -1580,10 +1590,31 @@ def show_main(page: ft.Page, cfg: dict):
             f"  PART_NAME='{name}';\n"
             " END_BODY;\n"
             "END_PRIMITIVE;\n"
-            "END.\n"
         )
-        with open(chips_prt_path, "w", encoding="utf-8") as f:
-            f.write(chips_prt_content)
+
+        if not _chips_append:
+            # Scrittura completa del file
+            chips_prt_content = (
+                "FILE_TYPE=LIBRARY_PARTS ;\n"
+                f"PRIMITIVE '{name}','{primitive_id}';\n"
+                + _primitive_body
+                + "END.\n"
+            )
+            with open(chips_prt_path, "w", encoding="utf-8") as f:
+                f.write(chips_prt_content)
+        else:
+            # Append: rimuove "END." finale, inserisce riga vuota + nuovo PRIMITIVE
+            _stripped = _existing_chips.rstrip()
+            if _stripped.endswith("END."):
+                _stripped = _stripped[:-len("END.")].rstrip()
+            _append_block = (
+                f"\nPRIMITIVE '{primitive_id}';\n"
+                + _primitive_body
+                + "END.\n"
+            )
+            with open(chips_prt_path, "w", encoding="utf-8") as f:
+                f.write(_stripped + "\n" + _append_block)
+
         # Crea master.tag con il contenuto 'chips.prt' nella stessa directory
         with open(os.path.join(chips_dir, "master.tag"), "w", encoding="utf-8") as f:
             f.write("chips.prt")
