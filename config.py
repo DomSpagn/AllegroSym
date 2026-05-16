@@ -128,9 +128,10 @@ def _init_symbols_db():
                 name        TEXT NOT NULL,
                 parts       INTEGER DEFAULT 1,
                 package     TEXT DEFAULT '',
+                part_number TEXT DEFAULT '',
                 folder      TEXT DEFAULT '',
                 created_at  TEXT NOT NULL DEFAULT '',
-                UNIQUE(name, package)
+                UNIQUE(name, part_number)
             )
         """)
         # Ensure created_at exists (may have been dropped in a previous migration)
@@ -143,12 +144,18 @@ def _init_symbols_db():
             conn.execute("ALTER TABLE symbols DROP COLUMN updated_at")
         except Exception:
             pass
-        # Migration: if old schema used UNIQUE(name) alone, recreate with UNIQUE(name, package)
+        # Ensure part_number column exists in older DBs
+        try:
+            conn.execute("ALTER TABLE symbols ADD COLUMN part_number TEXT DEFAULT ''")
+        except Exception:
+            pass
+        # Migration: recreate table with UNIQUE(name, part_number) if still on old schema
         try:
             row = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='symbols'"
             ).fetchone()
-            if row and 'name        TEXT NOT NULL UNIQUE' in row[0]:
+            needs_migration = row and 'UNIQUE(name, part_number)' not in row[0]
+            if needs_migration:
                 conn.execute("ALTER TABLE symbols RENAME TO symbols_old")
                 conn.execute("""
                     CREATE TABLE symbols (
@@ -156,14 +163,21 @@ def _init_symbols_db():
                         name        TEXT NOT NULL,
                         parts       INTEGER DEFAULT 1,
                         package     TEXT DEFAULT '',
+                        part_number TEXT DEFAULT '',
                         folder      TEXT DEFAULT '',
                         created_at  TEXT NOT NULL DEFAULT '',
-                        UNIQUE(name, package)
+                        UNIQUE(name, part_number)
                     )
                 """)
+                # Use existing part_number if present, else fall back to package value
+                # to preserve uniqueness for records that already existed
                 conn.execute(
-                    "INSERT INTO symbols (name, parts, package, folder, created_at) "
-                    "SELECT name, parts, package, folder, created_at FROM symbols_old"
+                    "INSERT OR IGNORE INTO symbols "
+                    "(name, parts, package, part_number, folder, created_at) "
+                    "SELECT name, parts, package, "
+                    "CASE WHEN part_number IS NOT NULL AND part_number != '' "
+                    "     THEN part_number ELSE package END, "
+                    "folder, created_at FROM symbols_old"
                 )
                 conn.execute("DROP TABLE symbols_old")
         except Exception:
@@ -264,7 +278,7 @@ STRINGS = {
         "step2_subtitle": "Define Pin Properties",
         "step3_subtitle": "Define Pin Placement",
         "select_part": "Part #",
-        "sym_name_pkg_duplicate": "A symbol with this name and package already exists",
+        "sym_name_pkg_duplicate": "A symbol with this Part Name and Part Number already exists",
     },
     "it": {
         "wizard_title": "AllegroSym – Configurazione Iniziale",
@@ -357,7 +371,7 @@ STRINGS = {
         "step2_subtitle": "Definisci le Proprietà dei Pin",
         "step3_subtitle": "Posizionamento dei Pin",
         "select_part": "Part #",
-        "sym_name_pkg_duplicate": "Esiste già un simbolo con questo nome e package",
+        "sym_name_pkg_duplicate": "Esiste già un simbolo con questo Part Name e Part Number",
     },
 }
 
@@ -459,13 +473,13 @@ def load_symbols() -> list:
     try:
         with sqlite3.connect(SYMBOLS_DB) as conn:
             rows = conn.execute(
-                "SELECT name, parts, package, folder, created_at "
+                "SELECT name, parts, package, part_number, folder, created_at "
                 "FROM symbols ORDER BY id"
             ).fetchall()
         return [
             {"name": name, "parts": parts, "package": package,
-             "folder": folder, "created_at": created_at}
-            for name, parts, package, folder, created_at in rows
+             "part_number": part_number, "folder": folder, "created_at": created_at}
+            for name, parts, package, part_number, folder, created_at in rows
         ]
     except Exception:
         return []
@@ -479,19 +493,19 @@ def save_symbols(symbols: list):
             existing = {
                 (r[0], r[1]): r[2]
                 for r in conn.execute(
-                    "SELECT name, package, created_at FROM symbols"
+                    "SELECT name, part_number, created_at FROM symbols"
                 ).fetchall()
             }
             conn.execute("DELETE FROM symbols")
             for sym in symbols:
-                key = (sym["name"], sym.get("package", ""))
+                key = (sym["name"], sym.get("part_number", ""))
                 created_at = existing.get(key, now)
                 conn.execute(
                     "INSERT INTO symbols "
-                    "(name, parts, package, folder, created_at) "
-                    "VALUES (?,?,?,?,?)",
+                    "(name, parts, package, part_number, folder, created_at) "
+                    "VALUES (?,?,?,?,?,?)",
                     (sym["name"], sym.get("parts", 1), sym.get("package", ""),
-                     sym.get("folder", ""), created_at),
+                     sym.get("part_number", ""), sym.get("folder", ""), created_at),
                 )
     except Exception:
         pass

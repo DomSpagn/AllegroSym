@@ -1358,11 +1358,11 @@ def show_main(page: ft.Page, cfg: dict):
             bool(pkg_val) and
             bool(ref_des_dropdown.value)
         )
-        # Check for existing (name, package) combination
+        # Check for existing (name, part_number) combination
         is_dup = False
         if fields_ok:
             is_dup = any(
-                sym["name"] == name_val and sym.get("package", "") == pkg_val
+                sym["name"] == name_val and sym.get("part_number", "") == part_num_val
                 for sym in symbols
             )
         if is_dup:
@@ -1620,7 +1620,7 @@ def show_main(page: ft.Page, cfg: dict):
                 "CLASS = IC\n"
                 "\n"
                 "{==========================================================}\n"
-                ":PACK_TYPE | VALUE | PACKAGE_TYPE ; \n"
+                ":PACK_TYPE | VALUE | PACKAGE_ID ; \n"
                 "{==========================================================}\n"
                 f" '{pack_type_val}' | '{part_number_val}' | '{package_id_val}'\n"
                 "\n"
@@ -1852,14 +1852,15 @@ def show_main(page: ft.Page, cfg: dict):
                 f.write(css_content)
 
         entry = {
-            "name":    name,
-            "parts":   num_parts,
-            "package": package_type,
-            "folder":  sym_dir,
+            "name":        name,
+            "parts":       num_parts,
+            "package":     package_type,
+            "part_number": part_number_val,
+            "folder":      sym_dir,
         }
         existing = next(
             (i for i, s_ in enumerate(symbols)
-             if s_["name"] == name and s_.get("package", "") == package_type),
+             if s_["name"] == name and s_.get("part_number", "") == part_number_val),
             None,
         )
         if existing is not None:
