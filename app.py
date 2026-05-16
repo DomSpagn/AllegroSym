@@ -330,7 +330,11 @@ def show_main(page: ft.Page, cfg: dict):
         page.update()
 
     sym_name_field = ft.TextField(
-        label=s.get("symbol_name", "Symbol Name"), width=320, autofocus=True,
+        label=s.get("part_name", "Part Name"), width=320, autofocus=True,
+        on_change=lambda e: _update_next_btn_state(),
+    )
+    sym_part_number_field = ft.TextField(
+        label=s.get("part_number", "Part Number"), width=320,
         on_change=lambda e: _update_next_btn_state(),
     )
     sym_dup_error_text = ft.Text(
@@ -665,7 +669,7 @@ def show_main(page: ft.Page, cfg: dict):
             expand=True,
             alignment=ft.alignment.center,
             content=ft.Column(
-                [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
+                [sym_name_field, sym_part_number_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
                 spacing=12,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
@@ -683,7 +687,7 @@ def show_main(page: ft.Page, cfg: dict):
                     padding=ft.padding.only(right=12),
                     alignment=ft.alignment.center,
                     content=ft.Column(
-                        [sym_name_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
+                        [sym_name_field, sym_part_number_field, sym_parts_field, pkg_dropdown, ref_des_dropdown, sym_dup_error_text],
                         spacing=12,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         tight=True,
@@ -1368,8 +1372,10 @@ def show_main(page: ft.Page, cfg: dict):
         parts_str = sym_parts_field.value.strip()
         name_val  = sym_name_field.value.strip()
         pkg_val   = pkg_dropdown.value
+        part_num_val = sym_part_number_field.value.strip()
         fields_ok = (
             bool(name_val) and
+            bool(part_num_val) and
             (parts_str.isdigit() and int(parts_str) > 0) and
             bool(pkg_val) and
             bool(ref_des_dropdown.value)
@@ -1482,6 +1488,7 @@ def show_main(page: ft.Page, cfg: dict):
         search_pkg_panel.visible = False
         sym_name_field.value    = ""
         sym_parts_field.value   = ""
+        sym_part_number_field.value = ""
         sym_parts_field.error_text   = None
         sym_parts_field.border_color = None
         pkg_dropdown.value      = None
@@ -1618,6 +1625,33 @@ def show_main(page: ft.Page, cfg: dict):
         # Crea master.tag con il contenuto 'chips.prt' nella stessa directory
         with open(os.path.join(chips_dir, "master.tag"), "w", encoding="utf-8") as f:
             f.write("chips.prt")
+
+        # part_table/part.ptf
+        part_name_val   = sym_name_field.value.strip()
+        part_number_val = sym_part_number_field.value.strip()
+        package_id_val  = pkg_dropdown.value or ""
+        pack_type_val   = f"{pkg_pin_count}PIN" if pkg_pin_count else "0PIN"
+        part_table_dir  = os.path.join(dehdl_dir, "part_table")
+        os.makedirs(part_table_dir, exist_ok=True)
+        part_ptf_path   = os.path.join(part_table_dir, "part.ptf")
+        if not os.path.isfile(part_ptf_path):
+            part_ptf_content = (
+                "FILE_TYPE = MULTI_PHYS_TABLE;\n"
+                "\n"
+                f"PART '{part_name_val}'\n"
+                "CLASS = IC\n"
+                "\n"
+                "{==========================================================}\n"
+                ":PACK_TYPE | VALUE | PACKAGE_TYPE ; \n"
+                "{==========================================================}\n"
+                f" '{pack_type_val}' | '{part_number_val}' | '{package_id_val}'\n"
+                "\n"
+                "END_PART\n"
+                "\n"
+                "END.\n"
+            )
+            with open(part_ptf_path, "w", encoding="utf-8") as f:
+                f.write(part_ptf_content)
 
         # sym_1  sym_N/
         for part_num in range(1, num_parts + 1):
